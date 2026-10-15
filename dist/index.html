@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>墨读 · Markdown 阅读器</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="文档资料库">
+      <button class="brand" data-action="welcome" title="墨读阅读指南"><span class="brand-symbol" data-icon="book"></span><span class="brand-name">墨读<span class="brand-en">INKSTONE</span></span></button>
+      <div class="open-actions"><button class="button primary" data-action="open-file"><span data-icon="plus"></span>打开文件<kbd>⌘ O</kbd></button><button class="button secondary" data-action="open-folder"><span data-icon="folderOpen"></span>打开文件夹</button></div>
+      <div class="sidebar-section-label">我的空间</div>
+      <nav class="library-nav" aria-label="资料库分类">
+        <button class="nav-item active" data-view="files" aria-current="page"><span data-icon="folder"></span><span>文件资料库</span><span class="nav-count" id="files-count">0</span></button>
+        <button class="nav-item" data-view="favorites"><span data-icon="star"></span><span>我的收藏</span><span class="nav-count" id="favorites-count">0</span></button>
+        <button class="nav-item" data-view="history"><span data-icon="history"></span><span>最近阅读</span><span class="nav-count" id="history-count">0</span></button>
+      </nav>
+      <div class="sidebar-divider"></div>
+      <div class="library-heading"><h2 id="library-title">全部文档</h2><div><button class="icon-button small" id="refresh-folder" data-action="refresh-folder" title="重新扫描当前文件夹" aria-label="重新扫描当前文件夹" hidden><span data-icon="refresh"></span></button><button class="icon-button small" data-action="open-file" title="添加 Markdown 文件" aria-label="添加 Markdown 文件"><span data-icon="plus"></span></button></div></div>
+      <label class="search-box"><span data-icon="search"></span><input type="search" id="library-search" placeholder="搜索文档…" aria-label="搜索文档"><kbd>/</kbd></label>
+      <div id="folder-options" class="folder-options" hidden><label><input type="checkbox" id="recursive" checked>包含子文件夹</label><span id="folder-scan-status"></span></div>
+      <div id="file-list" class="file-list" role="list" aria-label="文档列表"></div>
+      <div class="sidebar-footer"><span class="local-dot"></span><span>本地存储，安心阅读</span><button class="icon-button small" data-action="welcome" title="使用指南" aria-label="使用指南"><span data-icon="help"></span></button></div>
+    </aside>
+
+    <main id="main" class="main">
+      <header class="topbar">
+        <button class="icon-button" id="sidebar-toggle" data-action="toggle-sidebar" aria-label="切换资料库" title="切换资料库"><span data-icon="panel"></span></button>
+        <div class="breadcrumb"><span id="breadcrumb-folder">阅读空间</span><span class="breadcrumb-separator">/</span><strong id="breadcrumb-file">欢迎使用墨读.md</strong></div>
+        <div class="toolbar-actions">
+          <button class="icon-button" id="reload-document" data-action="reload-document" title="重新读取原文件" aria-label="重新读取原文件" hidden><span data-icon="refresh"></span></button>
+          <button class="icon-button" id="favorite-button" data-action="toggle-favorite" title="收藏文档" aria-label="收藏文档" aria-pressed="false"><span data-icon="star"></span></button>
+          <span class="toolbar-divider"></span>
+          <button class="icon-button" id="panel-toggle" data-action="toggle-panel" title="目录与批注" aria-label="目录与批注" aria-pressed="true"><span data-icon="outline"></span></button>
+          <button class="icon-button" id="focus-button" data-action="toggle-focus" title="专注阅读（Esc 退出）" aria-label="专注阅读" aria-pressed="false"><span data-icon="expand"></span></button>
+          <button class="button style-button" id="style-button" data-action="toggle-settings" aria-expanded="false"><span class="type-icon">Aa</span><span>阅读样式</span></button>
+          <button class="icon-button" id="more-button" data-action="toggle-more" title="更多操作" aria-label="更多操作" aria-expanded="false"><span data-icon="more"></span></button>
+        </div>
+      </header>
+      <div id="source-notice" class="source-notice" hidden></div>
+      <div class="reading-layout">
+        <div id="reading-scroll" class="reading-scroll" tabindex="0" aria-label="文档阅读区">
+          <div class="document-wrap">
+            <div class="document-eyebrow"><span class="document-badge"><span data-icon="file"></span>MARKDOWN</span><span class="document-meta" id="document-meta">为阅读留一点空间</span></div>
+            <article id="article" class="markdown-body" aria-label="Markdown 正文"></article>
+            <div class="document-end"><span></span><span class="end-symbol" data-icon="book"></span><span></span></div>
+          </div>
+        </div>
+        <aside id="right-panel" class="right-panel" aria-label="目录与批注">
+          <div class="panel-tabs" role="tablist" aria-label="文档导航"><button role="tab" class="panel-tab active" id="outline-tab" data-panel="outline" aria-selected="true" aria-controls="outline-list">目录</button><button role="tab" class="panel-tab" id="notes-tab" data-panel="notes" aria-selected="false" aria-controls="notes-list">批注<span id="notes-count" class="tiny-count">0</span></button><button class="icon-button small" data-action="toggle-panel" title="收起面板" aria-label="收起面板"><span data-icon="close"></span></button></div>
+          <div id="outline-list" class="outline-list" role="tabpanel" aria-labelledby="outline-tab"></div>
+          <div id="notes-list" class="notes-list" role="tabpanel" aria-labelledby="notes-tab" hidden></div>
+          <div class="panel-bottom-tip" id="panel-tip"><span data-icon="highlight"></span><p>选中文字，<br>记录值得留下的想法。</p></div>
+        </aside>
+      </div>
+      <footer class="statusbar"><div><span class="status-dot"></span><span id="save-status">已就绪</span><span class="status-separator">·</span><span id="word-count">0 字</span><span class="status-separator">·</span><span id="read-time">约 1 分钟</span></div><div><span id="reading-progress">0%</span><span class="status-separator">·</span><span>UTF-8</span><span class="status-separator">·</span><span>Markdown</span></div></footer>
+      <div class="progress-track"><div id="progress-fill"></div></div>
+    </main>
+  </div>
+
+  <section id="settings-popover" class="settings-popover popover" aria-label="阅读样式" hidden>
+    <div class="popover-heading"><div><h2>阅读样式</h2><p>找到适合你的阅读节奏</p></div><button class="icon-button small" data-action="close-settings" title="关闭阅读样式" aria-label="关闭阅读样式"><span data-icon="close"></span></button></div>
+    <div class="setting-group"><label class="setting-label">页面背景</label><div id="theme-options" class="theme-options"><button data-theme="paper" class="theme-option" aria-label="暖纸背景" title="暖纸"><span style="background:#fbfaf7"></span><small>暖纸</small></button><button data-theme="white" class="theme-option" aria-label="纸白背景" title="纸白"><span style="background:#ffffff"></span><small>纸白</small></button><button data-theme="sage" class="theme-option" aria-label="浅绿背景" title="浅绿"><span style="background:#eef3eb"></span><small>浅绿</small></button><button data-theme="night" class="theme-option" aria-label="深色背景" title="深色"><span style="background:#202624"></span><small>深色</small></button><label class="theme-option custom-theme" title="自定义背景"><span><input type="color" id="custom-color" value="#fbfaf7" aria-label="自定义背景颜色"></span><small>自定义</small></label></div></div>
+    <div class="setting-group"><label class="setting-label" for="font-family">字体类型</label><select id="font-family"><option value="system">系统字体 · 清晰自然</option><option value="song">中文宋体 · 书卷气息</option><option value="serif">衬线字体 · 经典阅读</option><option value="mono">等宽字体 · 简洁工整</option></select></div>
+    <div class="setting-group"><label class="setting-label" for="font-size">字体大小<output id="font-size-value">17 px</output></label><div class="range-row"><span class="range-small">A</span><input id="font-size" type="range" min="12" max="32" step="1" value="17"><span class="range-large">A</span></div></div>
+    <div class="setting-group"><label class="setting-label" for="text-width">文本宽度<output id="text-width-value">760 px</output></label><input id="text-width" type="range" min="460" max="1200" step="20" value="760"></div>
+    <div class="setting-group"><label class="setting-label" for="line-height">文本行间距<output id="line-height-value">1.9 倍</output></label><input id="line-height" type="range" min="1.3" max="2.6" step="0.1" value="1.9"></div>
+    <div class="settings-preview">字里行间，自有天地。<small>Make room for a good read.</small></div>
+    <button class="reset-button" data-action="reset-settings"><span data-icon="refresh"></span>恢复默认样式</button>
+  </section>
+  <div id="more-menu" class="more-menu popover" hidden><button data-action="export-notes"><span data-icon="download"></span>导出当前文档批注</button><button data-action="download-markdown"><span data-icon="file"></span>下载 Markdown 副本</button><button data-action="clear-history"><span data-icon="history"></span>清空最近阅读</button><button data-action="welcome"><span data-icon="help"></span>使用指南</button></div>
+  <div id="selection-toolbar" class="selection-toolbar" role="toolbar" aria-label="选中文字批注" hidden><div id="highlight-options"></div><span class="selection-divider"></span><button data-action="comment-selection" title="添加评论" aria-label="添加评论"><span data-icon="comment"></span><span>评论</span></button></div>
+  <dialog id="comment-dialog" class="comment-dialog"><form id="comment-form"><div class="dialog-heading"><h2 id="comment-heading">记下你的想法</h2><button type="button" class="icon-button small" data-action="close-comment" title="关闭评论" aria-label="关闭评论"><span data-icon="close"></span></button></div><blockquote id="comment-quote"></blockquote><label for="comment-input" class="setting-label">评论内容</label><textarea id="comment-input" maxlength="10000" placeholder="此刻想到了什么？" rows="5" required></textarea><div class="dialog-footer"><span>仅保存在本机</span><button type="submit" class="button primary"><span data-icon="check"></span>保存评论</button></div></form></dialog>
+  <div id="drop-overlay" class="drop-overlay" hidden><div><span data-icon="file"></span><h2>把文字放在这里</h2><p>松开鼠标，打开 Markdown 文件或文件夹</p></div></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <input type="file" id="file-input" accept=".md,.markdown,.mdown" multiple hidden>
+  <input type="file" id="folder-input" webkitdirectory multiple hidden>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "墨读 · Markdown 阅读器",
+  "short_name": "墨读",
+  "version": "1.0.0",
+  "description": "自在阅读本地 Markdown。自定义排版、文本高亮与评论、文件夹管理、收藏和最近 20 条阅读记录。",
+  "minimum_chrome_version": "110",
+  "permissions": ["unlimitedStorage"],
+  "action": {
+    "default_title": "打开墨读 Markdown 阅读器",
+    "default_icon": {"16": "icons/icon16.png", "32": "icons/icon32.png"}
+  },
+  "icons": {"16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
+  "background": {"service_worker": "background.js", "type": "module"},
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  }
+}
