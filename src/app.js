@@ -2,6 +2,7 @@ import * as db from './db.js';
 import { icon, hydrateIcons } from './icons.js';
 import { HIGHLIGHT_COLORS, captureSelection, applyAnnotations } from './annotations.js';
 import { renderMarkdown } from './render.js';
+import { renderDiagrams } from './diagrams.js';
 import { welcome } from './welcome.js';
 
 const $ = selector => document.querySelector(selector);
@@ -16,7 +17,7 @@ const fonts = {
   mono: '"SFMono-Regular", Menlo, Consolas, "PingFang SC", monospace',
 };
 const app = { documents: [], folders: [], history: [], view: 'files', current: welcome, notes: [], outline: [], orphanIds: [], settings: { ...defaults }, selected: null, editingNote: null, panel: 'outline', folderId: null, recursive: true, renderVersion: 0 };
-let toastTimer, settingsTimer, positionTimer, outlineObserver, selectedNoteId;
+let toastTimer, settingsTimer, positionTimer, diagramTimer, outlineObserver, selectedNoteId;
 let blobUrls = [];
 
 function escapeHtml(value = '') {
@@ -134,6 +135,9 @@ function applySettings() {
     el.setAttribute('aria-pressed', String(el.dataset.theme === settings.theme));
   });
   $('.custom-theme').classList.toggle('active', settings.theme === 'custom');
+  clearTimeout(diagramTimer);
+  const version = app.renderVersion;
+  diagramTimer = setTimeout(() => run(() => renderDiagrams(article, () => version === app.renderVersion)), 100);
 }
 function saveSettings() {
   applySettings();
@@ -249,9 +253,18 @@ function renderDocument(progress = 0) {
   $('#read-time').textContent = `约 ${Math.max(1, Math.ceil(chinese / 400 + english / 220))} 分钟`;
   refreshFavorite(); renderLibrary(); renderOutline(); renderNotes();
   const version = app.renderVersion;
+  let restoredTop;
   requestAnimationFrame(() => {
     scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight) * (progress || 0);
+    restoredTop = scroller.scrollTop;
     updateProgress();
+  });
+  run(async () => {
+    await renderDiagrams(article, () => version === app.renderVersion);
+    if (version === app.renderVersion && restoredTop !== undefined && Math.abs(scroller.scrollTop - restoredTop) < 2) {
+      scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight) * (progress || 0);
+      updateProgress();
+    }
   });
   run(() => resolveLocalImages(app.current, version));
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { locateAnchor } from '../src/annotations.js';
 import * as db from '../src/db.js';
+import { isDiagramSource } from '../src/diagram-source.js';
 
 test('最近阅读仅保留 20 条，不重复，重开后移动到首位', async () => {
   for (let i = 0; i < 25; i++) await db.recordVisit(`doc-${i}`);
@@ -54,5 +55,13 @@ test('识别 Markdown 扩展名并规范化相对文档、图片路径', () => {
   assert.equal(db.markdownFile('a.md.exe'), false);
   assert.equal(db.normalizePath('docs/a.md', '../images/a.png'), 'images/a.png');
   assert.equal(db.normalizePath('a.md', '../../secret.txt'), null);
+});
+test('识别独立 Mermaid 定义，保留普通文字和有标题的 Markdown', () => {
+  assert.equal(isDiagramSource('  flowchart TD\nA[中文] --> B[分支]'), true);
+  assert.equal(isDiagramSource('graph LR; A --> B'), true);
+  assert.equal(isDiagramSource('sequenceDiagram\nA->>B: 你好'), true);
+  assert.equal(isDiagramSource('这是 flowchart TD 的说明'), false);
+  assert.equal(isDiagramSource('# 标题\n\nflowchart TD\nA --> B'), false);
+  assert.equal(isDiagramSource('const flowchart = 1;'), false);
 });
 test.after(async () => { (await db.database()).close(); db.closeChannel(); });

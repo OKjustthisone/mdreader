@@ -1,14 +1,16 @@
 import { build } from 'esbuild';
-import { mkdir, copyFile, cp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, copyFile, rm, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = new URL('../dist/', import.meta.url);
 await mkdir(out, { recursive: true });
+await rm(new URL('chunks/', out), { recursive: true, force: true });
 await build({
   absWorkingDir: root,
   entryPoints: { app: 'src/app.js', background: 'src/background.js' },
   bundle: true, format: 'esm', outdir: fileURLToPath(out), target: 'chrome110',
+  splitting: true, chunkNames: 'chunks/[name]-[hash]',
   minify: true, legalComments: 'eof', sourcemap: false,
 });
 await Promise.all(['index.html', 'styles.css'].map(name => copyFile(new URL(`../src/${name}`, import.meta.url), new URL(name, out))));
@@ -54,8 +56,8 @@ function createIcon(size) {
 }
 await Promise.all([16, 32, 48, 128].map(size => writeFile(new URL(`icons/icon${size}.png`, out), createIcon(size))));
 await mkdir(new URL('licenses/', out), { recursive: true });
-for (const name of ['marked', 'dompurify', 'highlight.js']) {
-  const files = { marked: 'LICENSE.md', dompurify: 'LICENSE', 'highlight.js': 'LICENSE' };
+for (const name of ['marked', 'dompurify', 'highlight.js', 'mermaid']) {
+  const files = { marked: 'LICENSE.md', dompurify: 'LICENSE', 'highlight.js': 'LICENSE', mermaid: 'LICENSE' };
   await copyFile(new URL(`../node_modules/${name}/${files[name]}`, import.meta.url), new URL(`licenses/${name}.txt`, out));
 }
 const manifest = JSON.parse(await readFile(new URL('manifest.json', out), 'utf8'));

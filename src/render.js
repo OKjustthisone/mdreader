@@ -10,11 +10,15 @@ import css from 'highlight.js/lib/languages/css';
 import xml from 'highlight.js/lib/languages/xml';
 import sql from 'highlight.js/lib/languages/sql';
 import markdown from 'highlight.js/lib/languages/markdown';
+import { isDiagramSource } from './diagram-source.js';
+import { prepareDiagrams, disposeDiagrams } from './diagrams.js';
 for (const [name, language] of Object.entries({ javascript, typescript, python, json, bash, css, xml, sql, markdown })) hljs.registerLanguage(name, language);
 marked.setOptions({ gfm: true, breaks: false });
 marked.use({ renderer: { checkbox({ checked }) { return `<span class="task-checkbox">${checked ? '☑' : '☐'}</span> `; } } });
 export function renderMarkdown(source, root) {
-  root.innerHTML = DOMPurify.sanitize(marked.parse(source), {
+  disposeDiagrams(root);
+  const html = isDiagramSource(source) ? marked.parser([{ type: 'code', lang: 'mermaid', text: source.trim() }]) : marked.parse(source);
+  root.innerHTML = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'iframe', 'object', 'embed', 'audio', 'video'],
     FORBID_ATTR: ['style', 'srcset', 'id', 'name', 'contenteditable', 'autofocus'],
@@ -52,5 +56,6 @@ export function renderMarkdown(source, root) {
       code.innerHTML = hljs.highlight(code.textContent, { language, ignoreIllegals: true }).value;
     }
   });
+  prepareDiagrams(root);
   return outline;
 }
