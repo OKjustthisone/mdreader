@@ -72,6 +72,19 @@ try {
     expect(await page.evaluate(() => chrome.runtime.getManifest().manifest_version)).toBe(3);
     await expect(page.locator('#article h1')).toHaveText('留一点空间，给阅读。');
     await expect(page.locator('#outline-list button')).toHaveCount(7);
+    await expect(page.locator('#sidebar > .open-actions')).toHaveCount(0);
+    await page.locator('#library-add-button').click();
+    await expect(page.getByRole('menuitem', { name: /^添加文件夹/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /^添加文件\s/ })).toBeFocused();
+    await page.screenshot({ path: resolve(artifacts, '09-add-files-menu.png') });
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menuitem', { name: /^添加文件夹/ })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#library-add-menu')).toBeHidden();
+    await expect(page.locator('#library-add-button')).toBeFocused();
+    await page.locator('#library-add-button').click();
+    await page.locator('#article h1').click();
+    await expect(page.locator('#library-add-menu')).toBeHidden();
     await page.screenshot({ path: resolve(artifacts, '01-welcome.png') });
   });
   await step('打开 Markdown 文件，渲染表格、代码和任务列表', async () => {
@@ -204,7 +217,8 @@ try {
       window.showDirectoryPicker = async () => folder;
       window.showOpenFilePicker = async () => [await folder.getFileHandle('README.md')];
     });
-    await page.locator('[data-action="open-folder"]').click();
+    await page.locator('#library-add-button').click();
+    await page.getByRole('menuitem', { name: /^添加文件夹/ }).click();
     await expect(page.locator('.file-row[title="README.md"]')).toHaveCount(1);
     await expect(page.locator('.file-row[title="guides/细读.md"]')).toHaveCount(1);
     await expect(page.locator('.file-row[title="ignore.txt"]')).toHaveCount(0);
@@ -227,7 +241,8 @@ try {
     await page.getByRole('button', { name: '雾蓝高亮' }).click();
     await expect(page.locator('#notes-count')).toHaveText('1');
     const before = await page.locator('#files-count').textContent();
-    await page.locator('.open-actions [data-action="open-file"]').click();
+    await page.locator('#library-add-button').click();
+    await page.getByRole('menuitem', { name: /^添加文件\s/ }).click();
     await expect(page.locator('#files-count')).toHaveText(before);
     await page.evaluate(async () => {
       const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle('知识花园');
@@ -591,7 +606,8 @@ try {
       window.showDirectoryPicker = async () => folder;
     });
     await filePage.locator('[data-view="files"]').click();
-    await filePage.locator('[data-action="open-folder"]').click();
+    await filePage.locator('#library-add-button').click();
+    await filePage.getByRole('menuitem', { name: /^添加文件夹/ }).click();
     await expect(filePage.locator('.file-row[title="移除甲.md"]')).toHaveCount(1);
     await expect(filePage.locator('.file-row[title="移除乙.md"]')).toHaveCount(1);
     const group = filePage.locator('.folder-group', { has: filePage.locator('span[title="待移除的文件夹"]') });

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "墨读 · Markdown 阅读器",
   "short_name": "墨读",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "自在阅读本地 Markdown。自定义排版、文本高亮与评论、文件夹管理、收藏和最近 20 条阅读记录。",
   "minimum_chrome_version": "110",
   "permissions": ["unlimitedStorage"],

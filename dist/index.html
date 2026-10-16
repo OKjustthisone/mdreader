@@ -13,7 +13,6 @@
   <div class="app-shell">
     <aside id="sidebar" class="sidebar" aria-label="文档资料库">
       <button class="brand" data-action="welcome" title="墨读阅读指南"><span class="brand-symbol" data-icon="book"></span><span class="brand-name">墨读<span class="brand-en">INKSTONE</span></span></button>
-      <div class="open-actions"><button class="button primary" data-action="open-file"><span data-icon="plus"></span>打开文件<kbd>⌘ O</kbd></button><button class="button secondary" data-action="open-folder"><span data-icon="folderOpen"></span>打开文件夹</button></div>
       <div class="sidebar-section-label">我的空间</div>
       <nav class="library-nav" aria-label="资料库分类">
         <button class="nav-item active" data-view="files" aria-current="page"><span data-icon="folder"></span><span>文件资料库</span><span class="nav-count" id="files-count">0</span></button>
@@ -21,7 +20,7 @@
         <button class="nav-item" data-view="history"><span data-icon="history"></span><span>最近阅读</span><span class="nav-count" id="history-count">0</span></button>
       </nav>
       <div class="sidebar-divider"></div>
-      <div class="library-heading"><h2 id="library-title">全部文档</h2><div><button class="icon-button small" id="refresh-folder" data-action="refresh-folder" title="重新扫描当前文件夹" aria-label="重新扫描当前文件夹" hidden><span data-icon="refresh"></span></button><button class="icon-button small" data-action="open-file" title="添加 Markdown 文件" aria-label="添加 Markdown 文件"><span data-icon="plus"></span></button></div></div>
+      <div class="library-heading"><h2 id="library-title">全部文档</h2><div><button class="icon-button small" id="refresh-folder" data-action="refresh-folder" title="重新扫描当前文件夹" aria-label="重新扫描当前文件夹" hidden><span data-icon="refresh"></span></button><div class="library-add-control"><button class="icon-button small" id="library-add-button" data-action="toggle-add-menu" title="添加文件或文件夹" aria-label="添加文件或文件夹" aria-haspopup="menu" aria-expanded="false" aria-controls="library-add-menu"><span data-icon="plus"></span></button><div id="library-add-menu" class="library-add-menu popover" role="menu" aria-labelledby="library-add-button" hidden><button role="menuitem" tabindex="-1" data-action="open-file"><span data-icon="file"></span><span>添加文件</span><kbd data-shortcut="open-file">⌘ O</kbd></button><button role="menuitem" tabindex="-1" data-action="open-folder"><span data-icon="folderOpen"></span><span>添加文件夹</span><kbd data-shortcut="open-folder">⇧ ⌘ O</kbd></button></div></div></div></div>
       <label class="search-box"><span data-icon="search"></span><input type="search" id="library-search" placeholder="搜索文档…" aria-label="搜索文档"><kbd>/</kbd></label>
       <div id="folder-options" class="folder-options" hidden><label><input type="checkbox" id="recursive" checked>包含子文件夹</label><span id="folder-scan-status"></span></div>
       <div id="file-list" class="file-list" role="list" aria-label="文档列表"></div>

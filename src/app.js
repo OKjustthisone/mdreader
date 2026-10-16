@@ -162,8 +162,24 @@ function renderSyncStatus(state = sync.getStatus()) {
 function togglePopover(id, visible) {
   const popover = $(`#${id}`);
   popover.hidden = visible === undefined ? !popover.hidden : !visible;
+  if (!popover.hidden) toggleAddMenu(false);
   if (id === 'settings-popover') $('#style-button').setAttribute('aria-expanded', String(!popover.hidden));
   if (id === 'more-menu') $('#more-button').setAttribute('aria-expanded', String(!popover.hidden));
+}
+function toggleAddMenu(visible, focusItem = 0) {
+  const menu = $('#library-add-menu');
+  const button = $('#library-add-button');
+  const show = visible ?? menu.hidden;
+  if (show) {
+    togglePopover('settings-popover', false);
+    togglePopover('more-menu', false);
+  }
+  menu.hidden = !show;
+  button.setAttribute('aria-expanded', String(show));
+  if (show && focusItem) {
+    const items = [...menu.querySelectorAll('[role="menuitem"]')];
+    (focusItem > 0 ? items[0] : items.at(-1)).focus();
+  } else if (!show && menu.contains(document.activeElement)) button.focus({ preventScroll: true });
 }
 
 function setSourceNotice(message, action) {
@@ -463,6 +479,7 @@ async function removeFolderRecord(folderId) {
   saved();
 }
 async function pickFiles() {
+  toggleAddMenu(false);
   togglePopover('more-menu', false);
   if (!window.showOpenFilePicker) { $('#file-input').click(); return; }
   const handles = await window.showOpenFilePicker({ id: 'inkstone-files', multiple: true, types: [{ description: 'Markdown 文档', accept: { 'text/markdown': ['.md', '.markdown', '.mdown'] } }] });
@@ -474,6 +491,7 @@ async function findFolder(handle) {
   return app.folders.find(folder => !folder.handle && folder.name === handle.name) || null;
 }
 async function pickFolder() {
+  toggleAddMenu(false);
   if (!window.showDirectoryPicker) { $('#folder-input').click(); return; }
   const handle = await window.showDirectoryPicker({ id: 'inkstone-folder', mode: 'read' });
   const old = await findFolder(handle);
@@ -665,6 +683,7 @@ async function handleArticleLink(event) {
 }
 
 const actions = {
+  'toggle-add-menu': () => toggleAddMenu(undefined, 1),
   'open-file': pickFiles,
   'open-folder': pickFolder,
   'welcome': () => openDocument(welcome),
@@ -709,6 +728,7 @@ const actions = {
 
 function bindEvents() {
   document.addEventListener('click', event => {
+    if (!event.target.closest('#library-add-menu, #library-add-button')) toggleAddMenu(false);
     // 资料库的移除控件优先处理，避免同一次点击继续冒泡成「打开该文档」
     const removeTarget = event.target.closest('[data-remove-document], [data-remove-folder]');
     if (removeTarget) {
@@ -758,6 +778,27 @@ function bindEvents() {
     if (event.target.closest('#more-menu') && !action) togglePopover('more-menu', false);
     if (!event.target.closest('#settings-popover, #style-button')) togglePopover('settings-popover', false);
     if (!event.target.closest('#more-menu, #more-button')) togglePopover('more-menu', false);
+  });
+  $('#library-add-button').addEventListener('keydown', event => {
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    toggleAddMenu(true, event.key === 'ArrowDown' ? 1 : -1);
+  });
+  $('#library-add-menu').addEventListener('keydown', event => {
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
+      toggleAddMenu(false);
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...$('#library-add-menu').querySelectorAll('[role="menuitem"]')];
+    const current = items.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next].focus();
+  });
+  $('#library-add-menu').addEventListener('focusout', event => {
+    if (event.relatedTarget && !event.currentTarget.parentElement.contains(event.relatedTarget)) toggleAddMenu(false);
   });
   $('#selection-toolbar').addEventListener('pointerdown', event => event.preventDefault());
   article.addEventListener('pointerup', () => requestAnimationFrame(captureAndShow));
@@ -838,6 +879,7 @@ function bindEvents() {
     }
     if (event.key === '/' && !typing && !$('#comment-dialog').open) { event.preventDefault(); document.body.classList.remove('sidebar-collapsed'); $('#library-search').focus(); }
     if (event.key === 'Escape') {
+      toggleAddMenu(false);
       document.body.classList.remove('focus-mode');
       $('#focus-button').setAttribute('aria-pressed', 'false');
       togglePopover('settings-popover', false); togglePopover('more-menu', false);
@@ -894,7 +936,10 @@ function bindEvents() {
 async function boot() {
   hydrateIcons();
   $('#highlight-options').innerHTML = Object.entries(HIGHLIGHT_COLORS).map(([key, color]) => `<button class="color-dot" data-highlight="${key}" style="--highlight:${color.value}" title="${color.label}高亮" aria-label="${color.label}高亮"></button>`).join('');
-  if (navigator.platform.toLowerCase().includes('win') || navigator.platform.toLowerCase().includes('linux')) $('.open-actions kbd').textContent = 'Ctrl O';
+  if (navigator.platform.toLowerCase().includes('win') || navigator.platform.toLowerCase().includes('linux')) {
+    $('[data-shortcut="open-file"]').textContent = 'Ctrl O';
+    $('[data-shortcut="open-folder"]').textContent = 'Ctrl ⇧ O';
+  }
   const [settings, active, folderId, recursive, pending] = await Promise.all([db.get('state', 'settings'), db.get('state', 'active-document'), db.get('state', 'active-folder'), db.get('state', 'recursive'), db.get('state', 'pending-file-open')]);
   app.settings = normalizeSettings(settings);
   // 旧版本保存的是绝对像素宽度，首次启动时换算成显示比例并写回，之后按比例随窗口伸缩

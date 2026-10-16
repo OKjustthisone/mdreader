@@ -11,3 +11,11 @@
 .folder-group .group-remove{display:none;margin-left:4px;align-self:center;color:var(--muted);line-height:0}
 .folder-group:hover .group-remove,.folder-group:focus-within .group-remove{display:inline-flex}
 .group-remove:hover{color:#b0574b}
+.sidebar>.sidebar-section-label{margin-top:8px}
+.library-add-control{position:relative}
+#library-add-button[aria-expanded=true]{background:var(--accent-soft);color:var(--accent)}
+.library-add-menu{position:absolute;right:0;top:calc(100% + 6px);width:min(208px,calc(var(--sidebar-width,var(--default-panel-width,248px)) - 40px));padding:5px;z-index:30}
+.library-add-menu button{width:100%;display:flex;align-items:center;gap:8px;padding:10px 8px;border-radius:5px;text-align:left;white-space:nowrap;color:var(--subtle);font-size:11px}
+.library-add-menu button:hover,.library-add-menu button:focus{background:var(--accent-soft);color:var(--accent)}
+.library-add-menu .icon{width:15px;height:15px}
+.library-add-menu kbd{margin-left:auto;font-size:9px;color:var(--muted)}
