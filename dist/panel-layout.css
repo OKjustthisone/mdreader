@@ -1,0 +1,15 @@
+/* Width preferences override responsive defaults; JS fits them to the space
+   available when a panel is visible, while retaining the preferred size. */
+#sidebar{--default-panel-width:248px;position:relative;flex:0 0 var(--sidebar-width,var(--default-panel-width));width:var(--sidebar-width,var(--default-panel-width));min-width:var(--sidebar-width,var(--default-panel-width))}
+#right-panel{--default-panel-width:235px;position:relative;flex:0 0 var(--right-panel-width,var(--default-panel-width));width:var(--right-panel-width,var(--default-panel-width));min-width:var(--right-panel-width,var(--default-panel-width))}
+.panel-resizer{position:absolute;top:0;bottom:0;z-index:15;width:10px;cursor:col-resize;touch-action:none;user-select:none;-webkit-user-select:none}
+.panel-resizer-left{right:-5px}.panel-resizer-right{left:-5px}
+.panel-resizer:before{content:"";position:absolute;top:8px;bottom:8px;left:4px;width:2px;border-radius:2px;background:transparent;transition:background .15s}
+.panel-resizer:after{content:"";position:absolute;left:3px;top:calc(50% - 16px);width:3px;height:32px;border-radius:3px;background:var(--accent);opacity:.2;transition:opacity .15s}
+.panel-resizer:hover:before,.panel-resizer:focus-visible:before,.panel-resizer.is-resizing:before{background:var(--accent)}
+.panel-resizer:hover:after,.panel-resizer:focus-visible:after,.panel-resizer.is-resizing:after{opacity:.8}
+body.resizing-panels,body.resizing-panels *{cursor:col-resize!important;user-select:none!important;-webkit-user-select:none!important}
+@media(min-width:1700px){#sidebar{--default-panel-width:262px}#right-panel{--default-panel-width:260px}}
+@media(max-width:1150px){#sidebar{--default-panel-width:222px}#right-panel{--default-panel-width:206px}}
+@media(max-width:900px){#right-panel{--default-panel-width:240px;position:absolute;flex:none}}
+@media(max-width:650px){#sidebar{--default-panel-width:248px;position:fixed;flex:none}}

@@ -20,7 +20,7 @@ await build({
   bundle: true, format: 'iife', outfile: fileURLToPath(new URL('file-reader.js', out)), target: 'chrome110',
   minify: true, legalComments: 'eof', sourcemap: false,
 });
-await Promise.all(['index.html', 'styles.css', 'file-reader.css'].map(name => copyFile(new URL(`../src/${name}`, import.meta.url), new URL(name, out))));
+await Promise.all(['index.html', 'styles.css', 'file-reader.css', 'panel-layout.css'].map(name => copyFile(new URL(`../src/${name}`, import.meta.url), new URL(name, out))));
 await copyFile(new URL('../manifest.json', import.meta.url), new URL('manifest.json', out));
 await mkdir(new URL('icons/', out), { recursive: true });
 

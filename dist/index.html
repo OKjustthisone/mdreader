@@ -7,6 +7,7 @@
   <title>墨读 · Markdown 阅读器</title>
   <link rel="icon" href="icons/icon32.png">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="panel-layout.css">
 </head>
 <body>
   <div class="app-shell">
@@ -25,6 +26,7 @@
       <div id="folder-options" class="folder-options" hidden><label><input type="checkbox" id="recursive" checked>包含子文件夹</label><span id="folder-scan-status"></span></div>
       <div id="file-list" class="file-list" role="list" aria-label="文档列表"></div>
       <div class="sidebar-footer"><span class="local-dot"></span><span>本地存储，安心阅读</span><button class="icon-button small" data-action="welcome" title="使用指南" aria-label="使用指南"><span data-icon="help"></span></button></div>
+      <div id="left-panel-resizer" class="panel-resizer panel-resizer-left" role="separator" aria-label="调整左侧栏宽度" aria-orientation="vertical" aria-controls="sidebar" tabindex="0" title="拖动调整左侧栏宽度，双击恢复默认；方向键微调"></div>
     </aside>
 
     <main id="main" class="main">
@@ -55,6 +57,7 @@
           <div id="outline-list" class="outline-list" role="tabpanel" aria-labelledby="outline-tab"></div>
           <div id="notes-list" class="notes-list" role="tabpanel" aria-labelledby="notes-tab" hidden></div>
           <div class="panel-bottom-tip" id="panel-tip"><span data-icon="highlight"></span><p>选中文字，<br>记录值得留下的想法。</p></div>
+          <div id="right-panel-resizer" class="panel-resizer panel-resizer-right" role="separator" aria-label="调整右侧栏宽度" aria-orientation="vertical" aria-controls="right-panel" tabindex="0" title="拖动调整右侧栏宽度，双击恢复默认；方向键微调"></div>
         </aside>
       </div>
       <footer class="statusbar"><div><span class="status-dot"></span><span id="save-status">已就绪</span><span class="status-separator">·</span><span id="word-count">0 字</span><span class="status-separator">·</span><span id="read-time">约 1 分钟</span></div><div><span id="reading-progress">0%</span><span class="status-separator">·</span><span>UTF-8</span><span class="status-separator">·</span><span>Markdown</span></div></footer>

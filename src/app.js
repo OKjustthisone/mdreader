@@ -6,6 +6,7 @@ import { renderDiagrams } from './diagrams.js';
 import { welcome } from './welcome.js';
 import * as sync from './sync.js';
 import { defaults, themes, coerceReadingStyle, applyReadingStyle } from './reading-style.js';
+import { initResizablePanels } from './panel-layout.js';
 
 const $ = selector => document.querySelector(selector);
 const article = $('#article');
@@ -904,6 +905,7 @@ async function boot() {
   bindEvents();
   if (innerWidth < 900) { $('#right-panel').hidden = true; $('#panel-toggle').setAttribute('aria-pressed', 'false'); }
   if (innerWidth < 650) document.body.classList.add('sidebar-collapsed');
+  await initResizablePanels({ onError: report, onSave: saved });
   // 双击 .md 交接进来的文件优先打开：进资料库、进最近阅读，批注与同步照常可用
   let openedPending = false;
   if (typeof pending?.content === 'string' && pending.path) {
