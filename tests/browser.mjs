@@ -114,12 +114,12 @@ try {
     await expect(page.locator('#notes-count')).toHaveText('2');
     await expect(page.locator('.note-comment')).toHaveText('修改后的评论。');
   });
-  await step('字号、字体、文本宽度、行距和深色背景保存与恢复', async () => {
+  await step('字号、字体、显示比例、行距和深色背景保存与恢复', async () => {
     await page.locator('#style-button').click();
     await page.locator('[data-theme="night"]').click();
     await page.locator('#font-family').selectOption('serif');
     await page.evaluate(() => {
-      for (const [id, value] of [['font-size', '21'], ['text-width', '940'], ['line-height', '2.2']]) {
+      for (const [id, value] of [['font-size', '21'], ['text-width', '65'], ['line-height', '2.2']]) {
         const input = document.getElementById(id); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true }));
       }
     });
@@ -127,13 +127,36 @@ try {
     await page.reload(); await ready();
     expect(await page.locator('html').getAttribute('data-ui')).toBe('dark');
     expect(await page.locator('#article').evaluate(el => getComputedStyle(el).fontSize)).toBe('21px');
+    expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--text-width'))).toBe('52%');
     const settings = await readDB('state', 'settings');
-    expect(settings).toMatchObject({ font: 'serif', fontSize: 21, width: 940, lineHeight: 2.2 });
+    expect(settings).toMatchObject({ font: 'serif', fontSize: 21, width: 65, lineHeight: 2.2 });
     await page.locator('#style-button').click();
     await page.screenshot({ path: resolve(artifacts, '02-reading-settings.png') });
     await page.locator('[data-action="reset-settings"]').click();
     await expect.poll(async () => (await readDB('state', 'settings'))?.fontSize).toBe(17);
     await page.locator('[data-action="close-settings"]').click();
+  });
+  await step('旧版像素宽度设置自动换算为显示比例并写回', async () => {
+    await page.evaluate(async () => {
+      const db = await new Promise((res, rej) => { const req = indexedDB.open('inkstone-reader', 1); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      await new Promise((res, rej) => {
+        const tx = db.transaction('state', 'readwrite');
+        tx.objectStore('state').put({ theme: 'paper', background: '#fbfaf7', font: 'system', fontSize: 17, width: 760, lineHeight: 1.9 }, 'settings');
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+      db.close();
+    });
+    await page.reload(); await ready();
+    // 启动时会把旧的像素值换算并写回，等待写回完成后再读取
+    await expect.poll(async () => (await readDB('state', 'settings'))?.width).toBeLessThanOrEqual(100);
+    const settings = await readDB('state', 'settings');
+    expect(settings.width).toBeGreaterThanOrEqual(40);
+    expect(settings.width % 5).toBe(0);
+    // 换算按当前阅读区宽度进行，正文列宽应与旧的 760 px 基本一致
+    const text = await page.locator('#article').evaluate(el => el.getBoundingClientRect().width);
+    expect(Math.abs(text - 760)).toBeLessThan(30);
+    expect(await page.locator('#text-width-value').textContent()).toBe(`${settings.width}%`);
+    expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--text-width'))).toBe(`${settings.width * 4 / 5}%`);
   });
   await step('收藏快速打开与长文阅读位置恢复', async () => {
     await page.locator('#favorite-button').click();

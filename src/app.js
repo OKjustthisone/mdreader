@@ -8,7 +8,9 @@ import { welcome } from './welcome.js';
 const $ = selector => document.querySelector(selector);
 const article = $('#article');
 const scroller = $('#reading-scroll');
-const defaults = { theme: 'paper', background: '#fbfaf7', font: 'system', fontSize: 17, width: 760, lineHeight: 1.9 };
+const defaults = { theme: 'paper', background: '#fbfaf7', font: 'system', fontSize: 17, width: 100, lineHeight: 1.9 };
+// 显示比例：正文列宽 = 0.8 × 比例 × 阅读区宽度，100% 时正文约占阅读区 80%，两侧各留约 10% 空白
+const widthRange = { min: 40, max: 100, step: 5 };
 const themes = { paper: '#fbfaf7', white: '#ffffff', sage: '#eef3eb', night: '#202624' };
 const fonts = {
   system: 'ReaderSystem, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
@@ -105,13 +107,22 @@ function renderLibrary() {
 }
 
 function clamp(value, min, max, fallback) { return Number.isFinite(+value) ? Math.min(max, Math.max(min, +value)) : fallback; }
+function normalizeWidth(value) {
+  const number = +value;
+  if (!Number.isFinite(number) || number <= 0) return defaults.width;
+  if (number <= widthRange.max) return clamp(number, widthRange.min, widthRange.max, defaults.width);
+  // 旧版本以绝对像素保存（460–1200 px），按当前阅读区宽度换算成显示比例
+  const area = $('#reading-scroll')?.clientWidth || document.documentElement.clientWidth || innerWidth;
+  if (!area) return defaults.width;
+  return clamp(Math.round(number * 125 / area / widthRange.step) * widthRange.step, widthRange.min, widthRange.max, defaults.width);
+}
 function normalizeSettings(settings) {
   const source = { ...defaults, ...settings };
   return {
     theme: Object.hasOwn(themes, source.theme) || source.theme === 'custom' ? source.theme : 'paper',
     background: /^#[0-9a-f]{6}$/i.test(source.background) ? source.background : defaults.background,
     font: Object.hasOwn(fonts, source.font) ? source.font : defaults.font,
-    fontSize: clamp(source.fontSize, 12, 32, 17), width: clamp(source.width, 460, 1200, 760), lineHeight: clamp(source.lineHeight, 1.3, 2.6, 1.9),
+    fontSize: clamp(source.fontSize, 12, 32, 17), width: normalizeWidth(source.width), lineHeight: clamp(source.lineHeight, 1.3, 2.6, 1.9),
   };
 }
 function applySettings() {
@@ -121,12 +132,12 @@ function applySettings() {
   const dark = (rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114) < 140;
   document.documentElement.dataset.ui = dark ? 'dark' : 'light';
   const color = dark ? ['#dce3d7', '#95a18f', '#465042', 'rgba(197,216,180,.055)'] : ['#353a32', '#858a7f', 'rgba(80,96,66,.14)', 'rgba(92,106,75,.065)'];
-  for (const [key, value] of Object.entries({ '--page': settings.background, '--page-ink': color[0], '--page-muted': color[1], '--page-rule': color[2], '--code-bg': color[3], '--reader-font': fonts[settings.font], '--font-size': `${settings.fontSize}px`, '--text-width': `${settings.width}px`, '--line-height': settings.lineHeight })) style.setProperty(key, value);
+  for (const [key, value] of Object.entries({ '--page': settings.background, '--page-ink': color[0], '--page-muted': color[1], '--page-rule': color[2], '--code-bg': color[3], '--reader-font': fonts[settings.font], '--font-size': `${settings.fontSize}px`, '--text-width': `${(settings.width * 4) / 5}%`, '--line-height': settings.lineHeight })) style.setProperty(key, value);
   $('#font-family').value = settings.font;
   $('#font-size').value = settings.fontSize;
   $('#font-size-value').textContent = `${settings.fontSize} px`;
   $('#text-width').value = settings.width;
-  $('#text-width-value').textContent = `${settings.width} px`;
+  $('#text-width-value').textContent = `${settings.width}%`;
   $('#line-height').value = settings.lineHeight;
   $('#line-height-value').textContent = `${settings.lineHeight.toFixed(1)} 倍`;
   $('#custom-color').value = settings.background;
@@ -755,6 +766,8 @@ async function boot() {
   if (navigator.platform.toLowerCase().includes('win') || navigator.platform.toLowerCase().includes('linux')) $('.open-actions kbd').textContent = 'Ctrl O';
   const [settings, active, folderId, recursive] = await Promise.all([db.get('state', 'settings'), db.get('state', 'active-document'), db.get('state', 'active-folder'), db.get('state', 'recursive')]);
   app.settings = normalizeSettings(settings);
+  // 旧版本保存的是绝对像素宽度，首次启动时换算成显示比例并写回，之后按比例随窗口伸缩
+  if (+settings?.width > widthRange.max) run(() => db.put('state', { ...app.settings }, 'settings'));
   app.folderId = folderId; app.recursive = recursive ?? true;
   applySettings();
   await loadLibrary();
