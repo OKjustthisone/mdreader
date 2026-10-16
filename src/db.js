@@ -1,9 +1,45 @@
 const DB_NAME = 'inkstone-reader';
 let dbPromise;
 const events = typeof BroadcastChannel === 'function' ? new BroadcastChannel('inkstone-changes') : null;
-export const onChange = callback => { if (events) events.onmessage = callback; };
+const listeners = [];
+let writeListener;
+// onChange: other tabs (BroadcastChannel) or an explicit notifyChange() after a sync pull.
+export const onChange = callback => {
+  listeners.push(callback);
+  if (events && !events.onmessage) events.onmessage = event => listeners.forEach(listener => listener(event.data));
+};
+export const notifyChange = type => listeners.forEach(listener => listener(type));
+export const broadcast = type => { events?.postMessage(type); };
+// onLocalWrite: fired for every write made by this tab, used to schedule a sync push.
+export const onLocalWrite = callback => { writeListener = callback; };
 export function closeChannel() { events?.close(); }
-function announce(type) { events?.postMessage(type); }
+function announce(type) {
+  events?.postMessage(type);
+  writeListener?.(type);
+}
+// Records in these stores are merged record-by-record across browsers, so every write
+// carries its own clock. Deleted ids stay behind as tombstones so the other side learns
+// about the removal instead of resurrecting the record.
+const TOMBSTONE_STORES = { documents: true, annotations: true, folders: true };
+// Per-browser or non-serializable state keys that never travel to the shared folder.
+const RESERVED_STATE_KEYS = new Set(['__times', '__tombstones', '__sync-handle', '__device']);
+function stampStateTime(tx, key) {
+  const store = tx.objectStore('state');
+  const request = store.get('__times');
+  request.onsuccess = () => store.put({ ...(request.result || {}), [key]: Date.now() }, '__times');
+}
+function recordTombstone(tx, storeName, key) {
+  const store = tx.objectStore('state');
+  const request = store.get('__tombstones');
+  request.onsuccess = () => {
+    const map = { ...(request.result || {}) };
+    const bucket = { ...(map[storeName] || {}), [key]: Date.now() };
+    const ids = Object.keys(bucket).sort((a, b) => bucket[a] - bucket[b]);
+    for (const id of ids.slice(0, Math.max(0, ids.length - 500))) delete bucket[id];
+    map[storeName] = bucket;
+    store.put(map, '__tombstones');
+  };
+}
 export function database() {
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -32,21 +68,37 @@ export async function get(store, key) {
 export async function all(store) {
   return requestValue((await database()).transaction(store).objectStore(store).getAll());
 }
+// The `state` store has no key path, so values need their keys read alongside them.
+export async function allState() {
+  const store = (await database()).transaction('state').objectStore('state');
+  const [keys, values] = await Promise.all([requestValue(store.getAllKeys()), requestValue(store.getAll())]);
+  const map = {};
+  keys.forEach((key, index) => { map[key] = values[index]; });
+  return map;
+}
 // Read and write in one transaction: concurrent annotation/settings updates never
 // overwrite a stale copy of the entire library.
 export async function mutate(storeName, key, update) {
   const db = await database();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
+    // Deletions in mergeable stores also need to touch `state.__tombstones`.
+    const tx = db.transaction(storeName === 'state' ? [storeName] : [storeName, 'state'], 'readwrite');
     const store = tx.objectStore(storeName);
     let result;
     const read = store.get(key);
     read.onsuccess = () => {
       try {
         result = update(read.result);
-        if (result === undefined) store.delete(key);
-        else if (storeName === 'state') store.put(result, key);
-        else store.put(result);
+        if (result === undefined) {
+          store.delete(key);
+          if (TOMBSTONE_STORES[storeName]) recordTombstone(tx, storeName, key);
+        } else if (storeName === 'state') {
+          if (!RESERVED_STATE_KEYS.has(key)) stampStateTime(tx, key);
+          store.put(result, key);
+        } else {
+          if (result && typeof result === 'object') result.updatedAt = Date.now();
+          store.put(result);
+        }
       } catch (error) { tx.abort(); reject(error); }
     };
     tx.oncomplete = () => { announce(storeName); resolve(result); };
@@ -72,7 +124,7 @@ export async function putDocuments(docs) {
     const store = tx.objectStore('documents');
     for (const doc of docs) {
       const request = store.get(doc.id);
-      request.onsuccess = () => store.put({ ...request.result, ...doc, starred: request.result?.starred || false });
+      request.onsuccess = () => store.put({ ...request.result, ...doc, starred: request.result?.starred || false, updatedAt: Date.now() });
     }
     tx.oncomplete = () => { announce('documents'); resolve(); };
     tx.onabort = tx.onerror = () => reject(tx.error);

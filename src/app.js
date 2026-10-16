@@ -4,6 +4,7 @@ import { HIGHLIGHT_COLORS, captureSelection, applyAnnotations } from './annotati
 import { renderMarkdown } from './render.js';
 import { renderDiagrams } from './diagrams.js';
 import { welcome } from './welcome.js';
+import * as sync from './sync.js';
 
 const $ = selector => document.querySelector(selector);
 const article = $('#article');
@@ -156,6 +157,17 @@ function saveSettings() {
   clearTimeout(settingsTimer);
   settingsTimer = setTimeout(() => run(async () => { await db.put('state', snapshot, 'settings'); saved(); }), 180);
 }
+function renderSyncStatus(state = sync.getStatus()) {
+  const time = state.lastSyncAt ? new Date(state.lastSyncAt).toTimeString().slice(0, 5) : '';
+  const label = {
+    off: '未开启', syncing: '同步中…', ok: time ? `已同步 ${time}` : '已同步',
+    'need-permission': '需要重新授权', error: state.message || '同步出错',
+  }[state.state] || '';
+  $('#sync-status').textContent = label;
+  const button = $('#sync-folder');
+  button.textContent = { off: '选择同步文件夹', 'need-permission': '重新授权', error: '重试同步' }[state.state] || '停止同步';
+  button.title = state.folder ? `同步文件夹：${state.folder}` : '选一个本机文件夹，多浏览器共用资料库、收藏、批注与设置';
+}
 function togglePopover(id, visible) {
   const popover = $(`#${id}`);
   popover.hidden = visible === undefined ? !popover.hidden : !visible;
@@ -187,8 +199,9 @@ async function savePosition(doc = app.current) {
   doc.progress = progress;
   const cached = app.documents.find(item => item.id === doc.id);
   if (cached) cached.progress = progress;
+  // progressAt 让阅读进度有自己的时钟：两端同时滚动时，新的位置覆盖旧的
   if (doc.id === 'welcome') await db.put('state', progress, 'welcome-progress');
-  else await db.mutate('documents', doc.id, old => old ? { ...old, progress } : old);
+  else await db.mutate('documents', doc.id, old => old ? { ...old, progress, progressAt: Date.now() } : old);
 }
 function updateProgress() {
   const max = scroller.scrollHeight - scroller.clientHeight;
@@ -280,6 +293,8 @@ function renderDocument(progress = 0) {
   run(() => resolveLocalImages(app.current, version));
 }
 let openingToken = 0;
+// 同步过来的文件夹文档缺少本机句柄：记下待读文档，授权文件夹后自动打开
+let pendingFolderOpen = null;
 async function openDocument(input, { prompt = false, record = true, initial = false } = {}) {
   const token = ++openingToken;
   let doc = input.id === 'welcome' ? { ...welcome, ...app.documents.find(item => item.id === 'welcome') } : { ...input };
@@ -300,8 +315,16 @@ async function openDocument(input, { prompt = false, record = true, initial = fa
     } else sourceState = 'snapshot';
   }
   if (typeof doc.content !== 'string') {
-    setSourceNotice(`需要重新授权才能打开「${doc.name}」。`, { label: '授权并打开', callback: () => openDocument(doc, { prompt: true }) });
-    toast('尚未获得文件读取权限，请点击“授权并打开”。');
+    if (doc.folderId && !doc.handle) {
+      // 来自同步资料库：另一个浏览器授权过的文件夹，本机还需自己授权一次
+      const folder = app.folders.find(item => item.id === doc.folderId);
+      pendingFolderOpen = doc.id;
+      setSourceNotice(`「${doc.name}」来自${folder?.name ? `文件夹「${folder.name}」` : '已同步的资料库'}，请先在本浏览器授权该文件夹。`, { label: '授权文件夹', callback: pickFolder });
+      toast('同步来的文档需要重新授权所在文件夹后才能阅读');
+    } else {
+      setSourceNotice(`需要重新授权才能打开「${doc.name}」。`, { label: '授权并打开', callback: () => openDocument(doc, { prompt: true }) });
+      toast('尚未获得文件读取权限，请点击“授权并打开”。');
+    }
     return;
   }
   if (token !== openingToken) return;
@@ -390,7 +413,8 @@ async function pickFiles() {
 }
 async function findFolder(handle) {
   for (const folder of app.folders.filter(item => item.handle)) if (await folder.handle.isSameEntry(handle).catch(() => false)) return folder;
-  return null;
+  // 同步过来的文件夹记录没有本机句柄：按名称复用其 id，重新授权后沿用同一套文档 id
+  return app.folders.find(folder => !folder.handle && folder.name === handle.name) || null;
 }
 async function pickFolder() {
   if (!window.showDirectoryPicker) { $('#folder-input').click(); return; }
@@ -399,6 +423,11 @@ async function pickFolder() {
   const folder = { id: old?.id || crypto.randomUUID(), name: handle.name, handle, importedAt: Date.now() };
   await db.put('folders', folder);
   await scanFolder(folder);
+  if (pendingFolderOpen) {
+    const target = app.documents.find(item => item.id === pendingFolderOpen);
+    pendingFolderOpen = null;
+    if (target?.handle) await openDocument(target, { prompt: true });
+  }
 }
 let scanning = false;
 async function scanFolder(folder) {
@@ -593,6 +622,24 @@ const actions = {
   'close-settings': () => togglePopover('settings-popover', false),
   'toggle-more': () => { togglePopover('more-menu'); togglePopover('settings-popover', false); },
   'reset-settings': () => { app.settings = { ...defaults }; saveSettings(); },
+  'sync-folder': async () => {
+    const state = sync.getStatus().state;
+    if (state === 'off') {
+      await sync.pickDirectory();
+      const folder = sync.getStatus().folder;
+      if (folder) toast(`已开启与「${folder}」的跨浏览器同步`);
+    } else if (state === 'need-permission') {
+      await sync.reauthorize();
+      if (sync.getStatus().state === 'need-permission') toast('仍未获得同步文件夹权限，请重新选择');
+      else toast('已恢复跨浏览器同步');
+    } else if (state === 'error') {
+      await sync.forcePoll();
+    } else {
+      await sync.stopSync();
+      toast('已停止跨浏览器同步');
+    }
+    renderSyncStatus();
+  },
   'toggle-favorite': toggleFavorite,
   'comment-selection': () => openComment(),
   'close-comment': () => $('#comment-dialog').close(),
@@ -752,12 +799,24 @@ function bindEvents() {
       } else await importFiles(files.map(file => ({ file })));
     });
   });
-  db.onChange(() => run(async () => {
-    await loadLibrary();
-    const latest = app.documents.find(doc => doc.id === app.current.id);
-    if (latest) app.current.starred = latest.starred;
-    refreshFavorite(); await refreshNotes();
-  }));
+  db.onChange(type => {
+    // type 可能是单个仓库名，也可能是同步合并涉及的仓库数组
+    const stores = Array.isArray(type) ? type : [type];
+    run(async () => {
+      await loadLibrary();
+      const latest = app.documents.find(doc => doc.id === app.current.id);
+      if (latest) app.current.starred = latest.starred;
+      refreshFavorite(); await refreshNotes();
+      if (stores.includes('state')) {
+        const [settings, recursive] = await Promise.all([db.get('state', 'settings'), db.get('state', 'recursive')]);
+        app.settings = normalizeSettings(settings);
+        app.recursive = recursive ?? true;
+        $('#recursive').checked = app.recursive;
+        applySettings();
+        renderLibrary();
+      }
+    });
+  });
 }
 
 async function boot() {
@@ -775,6 +834,8 @@ async function boot() {
   if (innerWidth < 900) { $('#right-panel').hidden = true; $('#panel-toggle').setAttribute('aria-pressed', 'false'); }
   if (innerWidth < 650) document.body.classList.add('sidebar-collapsed');
   await openDocument(app.documents.find(doc => doc.id === active) || welcome, { record: false, initial: true });
+  sync.subscribe(renderSyncStatus);
+  run(() => sync.initSync());
   document.documentElement.dataset.ready = 'true';
 }
 run(boot);

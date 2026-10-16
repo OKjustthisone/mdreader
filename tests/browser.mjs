@@ -383,6 +383,57 @@ try {
     expect(await page.evaluate(() => window.diagramCspViolations || [])).toEqual([]);
     await expect(page.locator('.mermaid-measure')).toHaveCount(0);
   });
+  await step('跨浏览器同步：本地改动推送，远端设置与批注拉取生效', async () => {
+    await page.goto(`${url}?test=1`); await ready();
+    // 系统目录选择器无法自动化，用 OPFS 根目录充当共享文件夹（测试专用钩子）
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      await globalThis.__inkstoneSyncTest.setDirectory(root);
+    });
+    await expect(page.locator('#sync-status')).toContainText('已同步', { timeout: 20000 });
+    // 本地修改行间距 → 推送到共享文件夹
+    await page.locator('#line-height').evaluate(el => { el.value = '2.4'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.waitForFunction(async () => {
+      try {
+        const root = await navigator.storage.getDirectory();
+        const text = await (await (await root.getFileHandle('inkstone-state.json')).getFile()).text();
+        return JSON.parse(text).values?.settings?.lineHeight === 2.4;
+      } catch { return false; }
+    }, null, { timeout: 20000 });
+    expect(await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      const text = await (await (await root.getFileHandle('inkstone-meta.json')).getFile()).text();
+      return JSON.parse(text).rev;
+    })).toBeTruthy();
+    // 模拟另一个浏览器写入：新的设置、新增批注，rev 随之变化
+    expect((await readDB('state', 'settings'))?.fontSize).not.toBe(21);   // 先确认本机还不是 21，拉取断言才有意义
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      const write = async (name, value) => {
+        const handle = await root.getFileHandle(name, { create: true });
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(value));
+        await writable.close();
+      };
+      const future = Date.now() + 60000;
+      await write('inkstone-annotations.json', { records: [{ id: 'remote-note', documentId: 'welcome', start: 0, end: 4, quote: '远端批注', comment: '来自另一个浏览器', createdAt: future, updatedAt: future }] });
+      await write('inkstone-state.json', { values: { settings: { fontSize: 21 } }, times: { settings: future } });
+      await write('inkstone-meta.json', { schema: 1, rev: `remote-${future}`, updatedAt: future });
+      await globalThis.__inkstoneSyncTest.poll();
+    });
+    // 拉取合并后：远端设置立即生效，远端批注进入本地资料库
+    await page.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--font-size').trim() === '21px', null, { timeout: 10000 });
+    await expect(page.locator('#font-size')).toHaveValue('21');
+    expect(await readDB('annotations', 'remote-note')).toMatchObject({ comment: '来自另一个浏览器' });
+    await expect(page.locator('#sync-status')).toContainText('已同步');
+    await page.locator('#style-button').click();
+    await expect(page.locator('#sync-folder')).toHaveText('停止同步');
+    await page.screenshot({ path: resolve(artifacts, '05-sync-settings.png') });
+    await page.locator('[data-action="close-settings"]').click();
+    await page.evaluate(() => globalThis.__inkstoneSyncTest.stop());
+    await expect(page.locator('#sync-status')).toHaveText('未开启');
+    await expect(page.locator('#sync-folder')).toHaveText('选择同步文件夹');
+  });
   expect(errors).toEqual([]);
   console.log(`\n${passed} 组浏览器验收通过；无未捕获页面错误。截图：${artifacts}`);
 } catch (error) {
