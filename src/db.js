@@ -22,7 +22,8 @@ function announce(type) {
 // about the removal instead of resurrecting the record.
 const TOMBSTONE_STORES = { documents: true, annotations: true, folders: true };
 // Per-browser or non-serializable state keys that never travel to the shared folder.
-const RESERVED_STATE_KEYS = new Set(['__times', '__tombstones', '__sync-handle', '__device']);
+// pending-file-open：file:// 双击打开时后台暂存的待读交接，只属于本机本标签页，不参与同步
+const RESERVED_STATE_KEYS = new Set(['__times', '__tombstones', '__sync-handle', '__device', 'pending-file-open']);
 function stampStateTime(tx, key) {
   const store = tx.objectStore('state');
   const request = store.get('__times');

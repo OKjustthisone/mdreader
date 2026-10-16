@@ -24,7 +24,7 @@ const POLL_MS = 3000;
 const PUSH_DELAY = 1500;
 const PUSH_MIN_INTERVAL = 3000;
 // 只属于本浏览器的 state 键：句柄无法序列化，也绝不接受对端的值。
-const LOCAL_ONLY_STATE = new Set(['__sync-handle', '__device']);
+const LOCAL_ONLY_STATE = new Set(['__sync-handle', '__device', 'pending-file-open']);
 
 let directory = null;
 let initPromise = null;

@@ -12,6 +12,17 @@
   },
   "icons": {"16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
   "background": {"service_worker": "background.js", "type": "module"},
+  "content_scripts": [
+    {
+      "matches": [
+        "file://*/*.md*", "file://*/*.markdown*", "file://*/*.mdown*",
+        "file://*/*.MD*", "file://*/*.MARKDOWN*", "file://*/*.MDOWN*"
+      ],
+      "js": ["file-reader.js"],
+      "css": ["styles.css", "file-reader.css"],
+      "run_at": "document_idle"
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
   }

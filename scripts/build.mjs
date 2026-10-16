@@ -13,7 +13,14 @@ await build({
   splitting: true, chunkNames: 'chunks/[name]-[hash]',
   minify: true, legalComments: 'eof', sourcemap: false,
 });
-await Promise.all(['index.html', 'styles.css'].map(name => copyFile(new URL(`../src/${name}`, import.meta.url), new URL(name, out))));
+// 内容脚本是经典脚本（不支持 ESM 代码分割），打成自包含的单文件
+await build({
+  absWorkingDir: root,
+  entryPoints: { 'file-reader': 'src/file-reader.js' },
+  bundle: true, format: 'iife', outfile: fileURLToPath(new URL('file-reader.js', out)), target: 'chrome110',
+  minify: true, legalComments: 'eof', sourcemap: false,
+});
+await Promise.all(['index.html', 'styles.css', 'file-reader.css'].map(name => copyFile(new URL(`../src/${name}`, import.meta.url), new URL(name, out))));
 await copyFile(new URL('../manifest.json', import.meta.url), new URL('manifest.json', out));
 await mkdir(new URL('icons/', out), { recursive: true });
 

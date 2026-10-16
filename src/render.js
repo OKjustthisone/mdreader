@@ -15,7 +15,9 @@ import { prepareDiagrams, disposeDiagrams } from './diagrams.js';
 for (const [name, language] of Object.entries({ javascript, typescript, python, json, bash, css, xml, sql, markdown })) hljs.registerLanguage(name, language);
 marked.setOptions({ gfm: true, breaks: false });
 marked.use({ renderer: { checkbox({ checked }) { return `<span class="task-checkbox">${checked ? '☑' : '☐'}</span> `; } } });
-export function renderMarkdown(source, root) {
+// fileMode：在浏览器原生打开的 file:// 页面里阅读时，本地图片与 file 链接交给
+// 页面自己按所在目录解析（DOMPurify 已挡掉脚本类 URL），无需像扩展页面那样剥离。
+export function renderMarkdown(source, root, { fileMode = false } = {}) {
   disposeDiagrams(root);
   const html = isDiagramSource(source) ? marked.parser([{ type: 'code', lang: 'mermaid', text: source.trim() }]) : marked.parse(source);
   root.innerHTML = DOMPurify.sanitize(html, {
@@ -38,13 +40,13 @@ export function renderMarkdown(source, root) {
     a.removeAttribute('target');
     a.removeAttribute('download');
     a.setAttribute('rel', 'noopener noreferrer');
-    if (/^(?:javascript|data|vbscript|chrome|chrome-extension|file):/i.test(href)) a.removeAttribute('href');
+    if (/^(?:javascript|data|vbscript|chrome|chrome-extension):/i.test(href) || (!fileMode && /^file:/i.test(href))) a.removeAttribute('href');
   });
   root.querySelectorAll('img').forEach(img => {
     img.loading = 'lazy';
     img.referrerPolicy = 'no-referrer';
     const src = img.getAttribute('src') || '';
-    if (!/^https?:\/\//i.test(src) && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(src)) {
+    if (!fileMode && !/^https?:\/\//i.test(src) && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(src)) {
       img.dataset.localPath = src;
       img.removeAttribute('src');
       img.alt = img.alt || '本地图片（请打开所在文件夹）';

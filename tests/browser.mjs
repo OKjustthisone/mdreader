@@ -1,5 +1,5 @@
 import { chromium, expect } from '@playwright/test';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -32,8 +32,8 @@ async function readDB(store, key) {
     return JSON.parse(JSON.stringify(result ?? null));
   }, { store, key });
 }
-async function selectText(quote) {
-  await page.evaluate(quote => {
+async function selectText(quote, target = page) {
+  await target.evaluate(quote => {
     const root = document.getElementById('article');
     const text = root.textContent;
     const start = text.indexOf(quote);
@@ -52,9 +52,11 @@ async function selectText(quote) {
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
     root.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
   }, quote);
-  await expect(page.locator('#selection-toolbar')).toBeVisible();
+  await expect(target.locator('#selection-toolbar')).toBeVisible();
 }
 const longText = Array.from({ length: 35 }, (_, i) => `### 章节 ${i + 1}\n\n让每一段文字都拥有合适的留白。阅读的意义，在于与自己的想法相遇。第 ${i + 1} 段保留足够的内容，验证长篇文档的阅读位置可以恢复。\n`).join('\n');
+// file:// 双击、纯阅读与移除三组步骤共用的临时文件与标签页
+let fixtureDir, fixtureTarget, fixturePage;
 const sample = `# 阅读实验室\n\n第一段值得留下的文字。\n\n跨越 **粗体文字** 与普通文本的批注。\n\n评论让我记住此刻的想法。\n\n- [x] 已阅读\n- [ ] 待读\n\n| 主题 | 说明 |\n| --- | --- |\n| 阅读 | 有光也有留白 |\n\n\`\`\`javascript\nconst quiet = '阅读';\n\`\`\`\n\n${longText}`;
 try {
   context = await launch();
@@ -69,7 +71,7 @@ try {
   await step('实际 Manifest V3 扩展加载与中文阅读界面', async () => {
     expect(await page.evaluate(() => chrome.runtime.getManifest().manifest_version)).toBe(3);
     await expect(page.locator('#article h1')).toHaveText('留一点空间，给阅读。');
-    await expect(page.locator('#outline-list button')).toHaveCount(6);
+    await expect(page.locator('#outline-list button')).toHaveCount(7);
     await page.screenshot({ path: resolve(artifacts, '01-welcome.png') });
   });
   await step('打开 Markdown 文件，渲染表格、代码和任务列表', async () => {
@@ -119,7 +121,7 @@ try {
     await page.locator('[data-theme="night"]').click();
     await page.locator('#font-family').selectOption('serif');
     await page.evaluate(() => {
-      for (const [id, value] of [['font-size', '21'], ['text-width', '65'], ['line-height', '2.2']]) {
+      for (const [id, value] of [['font-size', '21'], ['text-width', '65'], ['line-height', '2.2'], ['outline-size', '15']]) {
         const input = document.getElementById(id); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true }));
       }
     });
@@ -128,12 +130,15 @@ try {
     expect(await page.locator('html').getAttribute('data-ui')).toBe('dark');
     expect(await page.locator('#article').evaluate(el => getComputedStyle(el).fontSize)).toBe('21px');
     expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--text-width'))).toBe('52%');
+    expect(await page.locator('.outline-link.level-1').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('15px');
+    expect(await page.locator('.outline-link.level-3').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('14px');
     const settings = await readDB('state', 'settings');
-    expect(settings).toMatchObject({ font: 'serif', fontSize: 21, width: 65, lineHeight: 2.2 });
+    expect(settings).toMatchObject({ font: 'serif', fontSize: 21, width: 65, lineHeight: 2.2, outlineSize: 15 });
     await page.locator('#style-button').click();
     await page.screenshot({ path: resolve(artifacts, '02-reading-settings.png') });
     await page.locator('[data-action="reset-settings"]').click();
     await expect.poll(async () => (await readDB('state', 'settings'))?.fontSize).toBe(17);
+    await expect(page.locator('#outline-size-value')).toHaveText('11 px');
     await page.locator('[data-action="close-settings"]').click();
   });
   await step('旧版像素宽度设置自动换算为显示比例并写回', async () => {
@@ -433,6 +438,188 @@ try {
     await page.evaluate(() => globalThis.__inkstoneSyncTest.stop());
     await expect(page.locator('#sync-status')).toHaveText('未开启');
     await expect(page.locator('#sync-folder')).toHaveText('选择同步文件夹');
+  });
+  await step('双击 .md 直接进入墨读：侧栏、批注、最近阅读与资料库记录', async () => {
+    fixtureDir = await mkdtemp(resolve(tmpdir(), 'inkstone-file-mode-'));
+    fixtureTarget = resolve(fixtureDir, '直接打开.md');
+    await writeFile(fixtureTarget, [
+      '# 直接打开的文档',
+      '',
+      '读取的是磁盘上的原文件，地址栏保持 file:// 真实路径。',
+      '',
+      '- [x] 任务项',
+      '',
+      '[另一篇](./另一篇.md)',
+      '',
+      '![封面](./img/cover.png)',
+      '',
+      '```mermaid',
+      'flowchart TD',
+      '  A[双击文件] --> B[阅读样式渲染]',
+      '```',
+      '',
+      '```javascript',
+      'const direct = true;',
+      '```',
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(resolve(fixtureDir, '另一篇.md'), '# 另一篇文档\n\n从相对链接直接跳转过来。\n', 'utf8');
+    const filePage = await context.newPage();
+    filePage.on('pageerror', error => errors.push(error.message));
+    filePage.on('dialog', dialog => dialog.accept()); // 移除确认框
+    await filePage.goto('file:///' + fixtureTarget.replace(/\\/g, '/'));
+    // 内容脚本把文件交给后台，当前标签页随即跳进墨读主界面
+    await filePage.waitForURL(/chrome-extension:\/\/.+\/index\.html/, { timeout: 20000 });
+    await filePage.waitForSelector('html[data-ready="true"]', { timeout: 20000 });
+    await expect(filePage.locator('#article h1')).toHaveText('直接打开的文档');
+    await expect(filePage.locator('.sidebar')).toBeVisible();
+    // 批注功能完整可用：选中文字即可高亮
+    await selectText('读取的是磁盘上的原文件', filePage);
+    await filePage.getByRole('button', { name: '暖黄高亮', exact: true }).click();
+    await expect(filePage.locator('#notes-count')).toHaveText('1');
+    // 相对链接与图片引用保留：无句柄时图片暂存 data-local-path，授权所在文件夹后加载
+    await expect(filePage.locator('#article img')).toHaveAttribute('data-local-path', './img/cover.png');
+    expect(decodeURIComponent(await filePage.locator('#article a').getAttribute('href'))).toBe('./另一篇.md');
+    // 进入资料库与最近阅读
+    await expect(filePage.locator('.file-row[title$="直接打开.md"]')).toHaveCount(1);
+    await filePage.locator('[data-view="history"]').click();
+    await expect(filePage.locator('.file-row[title$="直接打开.md"]')).toHaveCount(1);
+    await filePage.locator('[data-view="files"]').click();
+    // IndexedDB 中留下正文记录
+    const record = await filePage.evaluate(async () => {
+      const db = await new Promise((res, rej) => { const req = indexedDB.open('inkstone-reader', 1); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      const docs = await new Promise((res, rej) => { const req = db.transaction('documents').objectStore('documents').getAll(); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      db.close();
+      const doc = docs.find(item => item.name === '直接打开.md');
+      return doc ? { path: doc.path, content: doc.content } : null;
+    });
+    expect(record?.path).toContain('直接打开.md');
+    expect(record?.content).toContain('直接打开的文档');
+    await filePage.screenshot({ path: resolve(artifacts, '06-double-click.png') });
+    // 标签页留给后面的移除步骤继续使用
+    fixturePage = filePage;
+  });
+  await step('?plain 纯阅读兜底：file:// 地址栏、同一份设置与 Mermaid 照常', async () => {
+    // 先在扩展页面保存自定义字号，验证同一份设置会被带到纯阅读页
+    await page.evaluate(() => {
+      const input = document.getElementById('font-size');
+      input.value = '21';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect.poll(async () => (await readDB('state', 'settings'))?.fontSize).toBe(21);
+    const plainPage = await context.newPage();
+    plainPage.on('pageerror', error => errors.push(error.message));
+    await plainPage.goto(`file:///${fixtureTarget.replace(/\\/g, '/')}?plain`);
+    await plainPage.waitForSelector('html[data-inkstone-file="ready"]', { timeout: 20000 });
+    await expect(plainPage.locator('#article h1')).toHaveText('直接打开的文档');
+    await expect(plainPage.locator('#article .task-checkbox')).toHaveText('☑');
+    await expect(plainPage.locator('#article img')).toHaveAttribute('src', './img/cover.png');
+    // marked 会把链接做百分号编码，解码后仍是相对路径
+    expect(decodeURIComponent(await plainPage.locator('#article a').getAttribute('href'))).toBe('./另一篇.md');
+    await expect(plainPage.locator('#article code.language-javascript')).toHaveClass(/language-javascript/);
+    // 同一份阅读设置经后台带过来：正文按 21 px 渲染
+    await expect.poll(() => plainPage.evaluate(() => getComputedStyle(document.querySelector('#article')).fontSize)).toBe('21px');
+    // 地址栏保持真实 file:// 路径；标签页标题与元信息行标明文件
+    expect(decodeURIComponent(plainPage.url()).startsWith('file:///')).toBe(true);
+    expect(decodeURIComponent(plainPage.url())).toContain('直接打开.md');
+    await expect(plainPage).toHaveTitle('直接打开.md · 墨读');
+    expect(await plainPage.locator('.document-meta').textContent()).toContain('直接打开.md');
+    // 图表在纯阅读页中同样渲染
+    await expect(plainPage.locator('.mermaid-block[data-diagram-state="ready"]')).toHaveCount(1, { timeout: 30000 });
+    // 正文不横向溢出窗口
+    const overflow = await plainPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    await plainPage.screenshot({ path: resolve(artifacts, '06-file-mode.png') });
+    // 纯阅读页里的相对 .md 链接没有 ?plain，跳转后同样交给墨读完整打开
+    await plainPage.locator('#article a').click();
+    await plainPage.waitForURL(/chrome-extension:\/\/.+\/index\.html/, { timeout: 20000 });
+    await plainPage.waitForSelector('html[data-ready="true"]', { timeout: 20000 });
+    await expect(plainPage.locator('#article h1')).toHaveText('另一篇文档');
+    await expect(plainPage.locator('.sidebar')).toBeVisible();
+    await plainPage.close();
+    // 还原字号，保持环境干净
+    await page.evaluate(() => {
+      const input = document.getElementById('font-size');
+      input.value = '17';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect.poll(async () => (await readDB('state', 'settings'))?.fontSize).toBe(17);
+  });
+  await step('从资料库移除文档与文件夹：批注与记录一并清理，磁盘文件不动', async () => {
+    const filePage = fixturePage;
+    // 文档：移除刚才双击打开的文档（此刻正打开着）
+    const before = await filePage.evaluate(async () => {
+      const db = await new Promise((res, rej) => { const req = indexedDB.open('inkstone-reader', 1); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      const read = store => new Promise((res, rej) => { const req = db.transaction(store).objectStore(store).getAll(); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      const docs = await read('documents'), notes = await read('annotations');
+      db.close();
+      const doc = docs.find(item => item.name === '直接打开.md');
+      return { docId: doc?.id || null, noteIds: notes.filter(note => note.documentId === doc?.id).map(note => note.id) };
+    });
+    expect(before.docId).toBeTruthy();
+    expect(before.noteIds).toHaveLength(1);
+    const row = filePage.locator('.file-row[title$="直接打开.md"]');
+    await filePage.locator('[data-view="files"]').click();
+    await expect(row).toHaveCount(1);
+    await row.hover();
+    await row.locator('.row-remove').click(); // 确认框由 dialog 处理器自动接受
+    await expect(row).toHaveCount(0);
+    // 被移除的若正是当前文档，自动回到使用指南
+    await expect(filePage.locator('#article h1')).toHaveText('留一点空间，给阅读。');
+    // 文档与批注从 IndexedDB 删除，并留下同步墓碑
+    expect(await readDB('documents', before.docId)).toBeNull();
+    expect(await readDB('annotations', before.noteIds[0])).toBeNull();
+    const tombs = await readDB('state', '__tombstones');
+    expect(tombs?.documents?.[before.docId]).toBeTruthy();
+    expect(tombs?.annotations?.[before.noteIds[0]]).toBeTruthy();
+    // 最近阅读里不再出现
+    await filePage.locator('[data-view="history"]').click();
+    await expect(filePage.locator('.file-row[title$="直接打开.md"]')).toHaveCount(0);
+    // 磁盘上的原文件原封不动
+    expect(await readFile(fixtureTarget, 'utf8')).toContain('直接打开的文档');
+
+    // 文件夹：新建一个文件夹并授权扫描，随后整组移除
+    await filePage.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      const folder = await root.getDirectoryHandle('待移除的文件夹', { create: true });
+      async function write(directory, name, content) {
+        const handle = await directory.getFileHandle(name, { create: true });
+        const writer = await handle.createWritable(); await writer.write(content); await writer.close();
+      }
+      await write(folder, '移除甲.md', '# 移除甲\n\n甲的正文。\n');
+      await write(folder, '移除乙.md', '# 移除乙\n\n乙的正文。\n');
+      window.showDirectoryPicker = async () => folder;
+    });
+    await filePage.locator('[data-view="files"]').click();
+    await filePage.locator('[data-action="open-folder"]').click();
+    await expect(filePage.locator('.file-row[title="移除甲.md"]')).toHaveCount(1);
+    await expect(filePage.locator('.file-row[title="移除乙.md"]')).toHaveCount(1);
+    const group = filePage.locator('.folder-group', { has: filePage.locator('span[title="待移除的文件夹"]') });
+    await expect(group).toHaveCount(1);
+    const folderInfo = await filePage.evaluate(async () => {
+      const db = await new Promise((res, rej) => { const req = indexedDB.open('inkstone-reader', 1); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      const read = store => new Promise((res, rej) => { const req = db.transaction(store).objectStore(store).getAll(); req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+      const folders = await read('folders'), docs = await read('documents');
+      db.close();
+      const folder = folders.find(item => item.name === '待移除的文件夹');
+      return { id: folder?.id || null, docIds: docs.filter(item => item.folderId === folder?.id).map(item => item.id) };
+    });
+    expect(folderInfo.id).toBeTruthy();
+    expect(folderInfo.docIds).toHaveLength(2);
+    await group.hover();
+    await group.locator('.group-remove').click();
+    await expect(group).toHaveCount(0);
+    await expect(filePage.locator('.file-row[title="移除甲.md"]')).toHaveCount(0);
+    await expect(filePage.locator('.file-row[title="移除乙.md"]')).toHaveCount(0);
+    expect(await readDB('folders', folderInfo.id)).toBeNull();
+    for (const docId of folderInfo.docIds) expect(await readDB('documents', docId)).toBeNull();
+    const after = await readDB('state', '__tombstones');
+    expect(after?.folders?.[folderInfo.id]).toBeTruthy();
+    for (const docId of folderInfo.docIds) expect(after?.documents?.[docId]).toBeTruthy();
+    await filePage.screenshot({ path: resolve(artifacts, '07-library-removal.png') });
+    await filePage.close();
+    fixturePage = null;
+    await rm(fixtureDir, { recursive: true, force: true });
   });
   expect(errors).toEqual([]);
   console.log(`\n${passed} 组浏览器验收通过；无未捕获页面错误。截图：${artifacts}`);

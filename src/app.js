@@ -5,20 +5,13 @@ import { renderMarkdown } from './render.js';
 import { renderDiagrams } from './diagrams.js';
 import { welcome } from './welcome.js';
 import * as sync from './sync.js';
+import { defaults, themes, coerceReadingStyle, applyReadingStyle } from './reading-style.js';
 
 const $ = selector => document.querySelector(selector);
 const article = $('#article');
 const scroller = $('#reading-scroll');
-const defaults = { theme: 'paper', background: '#fbfaf7', font: 'system', fontSize: 17, width: 100, lineHeight: 1.9 };
 // 显示比例：正文列宽 = 0.8 × 比例 × 阅读区宽度，100% 时正文约占阅读区 80%，两侧各留约 10% 空白
 const widthRange = { min: 40, max: 100, step: 5 };
-const themes = { paper: '#fbfaf7', white: '#ffffff', sage: '#eef3eb', night: '#202624' };
-const fonts = {
-  system: 'ReaderSystem, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif',
-  song: '"Songti SC", "Noto Serif CJK SC", SimSun, serif',
-  serif: 'Georgia, "Times New Roman", "Songti SC", SimSun, serif',
-  mono: '"SFMono-Regular", Menlo, Consolas, "PingFang SC", monospace',
-};
 const app = { documents: [], folders: [], history: [], view: 'files', current: welcome, notes: [], outline: [], orphanIds: [], settings: { ...defaults }, selected: null, editingNote: null, panel: 'outline', folderId: null, recursive: true, renderVersion: 0 };
 let toastTimer, settingsTimer, positionTimer, diagramTimer, outlineObserver, selectedNoteId;
 let blobUrls = [];
@@ -60,6 +53,8 @@ function fileName(doc) { return doc.name.replace(/\.(md|markdown|mdown)$/i, '');
 async function loadLibrary() {
   [app.documents, app.folders, app.history] = await Promise.all([db.all('documents'), db.all('folders'), db.get('state', 'history')]);
   app.history ||= [];
+  // 同步的历史取并集，可能带回已移除文档的条目：读取时滤掉，计数与列表都只留资料库里还存在的文档
+  app.history = app.history.filter(id => id === 'welcome' || app.documents.some(doc => doc.id === id));
   renderLibrary();
 }
 function renderLibrary() {
@@ -100,10 +95,13 @@ function renderLibrary() {
     const groupId = doc.folderId || 'individual';
     if (app.view === 'files' && groupId !== lastGroup) {
       lastGroup = groupId;
-      group = `<div class="folder-group">${icon(doc.folderId ? 'folder' : 'file')}<span title="${escapeHtml(folderLabel(doc))}">${escapeHtml(folderLabel(doc))}</span><small>${visible.filter(item => (item.folderId || 'individual') === groupId).length}</small></div>`;
+      const removable = doc.folderId ? `<button type="button" class="group-remove" data-remove-folder="${escapeHtml(doc.folderId)}" title="从资料库移除「${escapeHtml(folderLabel(doc))}」" aria-label="从资料库移除文件夹「${escapeHtml(folderLabel(doc))}」">${icon('trash')}</button>` : '';
+      group = `<div class="folder-group">${icon(doc.folderId ? 'folder' : 'file')}<span title="${escapeHtml(folderLabel(doc))}">${escapeHtml(folderLabel(doc))}</span>${removable}<small>${visible.filter(item => (item.folderId || 'individual') === groupId).length}</small></div>`;
     }
     const subtitle = doc.available === false ? '原文件已移除 · 保留的副本' : app.view === 'history' ? relativeDate(doc.viewedAt) || '阅读指南' : doc.path.includes('/') ? doc.path.slice(0, doc.path.lastIndexOf('/')) : (doc.folderId ? '' : 'Markdown');
-    return `${group}<button role="listitem" class="file-row ${doc.id === app.current?.id ? 'active' : ''}" data-document="${escapeHtml(doc.id)}" title="${escapeHtml(doc.path)}" ${doc.id === app.current?.id ? 'aria-current="true"' : ''}><span class="file-icon">${icon('file')}</span><span class="file-info"><span class="file-name">${escapeHtml(doc.name)}</span>${subtitle ? `<span class="file-path">${escapeHtml(subtitle)}</span>` : ''}</span>${doc.starred ? `<span class="star-indicator">${icon('star')}</span>` : ''}</button>`;
+    // 移除按钮是行内的装饰控件：从资料库里拿掉记录与批注，磁盘上的文件保持原样
+    const remove = doc.id === 'welcome' ? '' : `<span class="row-remove" data-remove-document="${escapeHtml(doc.id)}" role="button" tabindex="0" title="从资料库移除" aria-label="从资料库移除《${escapeHtml(doc.name)}》">${icon('trash')}</span>`;
+    return `${group}<button role="listitem" class="file-row ${doc.id === app.current?.id ? 'active' : ''}" data-document="${escapeHtml(doc.id)}" title="${escapeHtml(doc.path)}" ${doc.id === app.current?.id ? 'aria-current="true"' : ''}><span class="file-icon">${icon('file')}</span><span class="file-info"><span class="file-name">${escapeHtml(doc.name)}</span>${subtitle ? `<span class="file-path">${escapeHtml(subtitle)}</span>` : ''}</span>${doc.starred ? `<span class="star-indicator">${icon('star')}</span>` : ''}${remove}</button>`;
   }).join('');
 }
 
@@ -118,25 +116,17 @@ function normalizeWidth(value) {
   return clamp(Math.round(number * 125 / area / widthRange.step) * widthRange.step, widthRange.min, widthRange.max, defaults.width);
 }
 function normalizeSettings(settings) {
-  const source = { ...defaults, ...settings };
-  return {
-    theme: Object.hasOwn(themes, source.theme) || source.theme === 'custom' ? source.theme : 'paper',
-    background: /^#[0-9a-f]{6}$/i.test(source.background) ? source.background : defaults.background,
-    font: Object.hasOwn(fonts, source.font) ? source.font : defaults.font,
-    fontSize: clamp(source.fontSize, 12, 32, 17), width: normalizeWidth(source.width), lineHeight: clamp(source.lineHeight, 1.3, 2.6, 1.9),
-  };
+  // 其余字段由共享模块宽容整理；旧版本的像素宽度仍按当前阅读区换算
+  return { ...coerceReadingStyle(settings), width: normalizeWidth(settings?.width) };
 }
 function applySettings() {
   const settings = app.settings = normalizeSettings(app.settings);
-  const style = document.documentElement.style;
-  const rgb = settings.background.slice(1).match(/../g).map(value => parseInt(value, 16));
-  const dark = (rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114) < 140;
-  document.documentElement.dataset.ui = dark ? 'dark' : 'light';
-  const color = dark ? ['#dce3d7', '#95a18f', '#465042', 'rgba(197,216,180,.055)'] : ['#353a32', '#858a7f', 'rgba(80,96,66,.14)', 'rgba(92,106,75,.065)'];
-  for (const [key, value] of Object.entries({ '--page': settings.background, '--page-ink': color[0], '--page-muted': color[1], '--page-rule': color[2], '--code-bg': color[3], '--reader-font': fonts[settings.font], '--font-size': `${settings.fontSize}px`, '--text-width': `${(settings.width * 4) / 5}%`, '--line-height': settings.lineHeight })) style.setProperty(key, value);
+  applyReadingStyle(document.documentElement, settings);
   $('#font-family').value = settings.font;
   $('#font-size').value = settings.fontSize;
   $('#font-size-value').textContent = `${settings.fontSize} px`;
+  $('#outline-size').value = settings.outlineSize;
+  $('#outline-size-value').textContent = `${settings.outlineSize} px`;
   $('#text-width').value = settings.width;
   $('#text-width-value').textContent = `${settings.width}%`;
   $('#line-height').value = settings.lineHeight;
@@ -268,7 +258,8 @@ function renderDocument(progress = 0) {
   $('#breadcrumb-folder').textContent = app.current.folderId ? folderLabel(app.current) : '阅读空间';
   $('#document-meta').textContent = app.current.id === 'welcome' ? '为阅读留一点空间' : app.current.folderId ? `${folderLabel(app.current)} / ${app.current.path}` : '本地文档 · 只读';
   $('#reload-document').hidden = !app.current.handle;
-  document.title = `${fileName(app.current)} · 墨读`;
+  // 地址栏始终是 chrome-extension://（浏览器安全限制），标签页标题带上所在文件夹便于辨认
+  document.title = `${fileName(app.current)}${app.current.folderId ? ` · ${folderLabel(app.current)}` : ''} · 墨读`;
   const content = article.textContent;
   const chars = content.replace(/\s/g, '').length;
   const chinese = (content.match(/[\u3400-\u9fff]/g) || []).length;
@@ -359,7 +350,9 @@ async function openDocument(input, { prompt = false, record = true, initial = fa
   if (sourceState === 'snapshot') snapshotNotice();
   else if (sourceState === 'missing') setSourceNotice('原文件可能已移动或删除，正在显示上次保存的副本。', { label: '重新打开文件', callback: pickFiles });
   else setSourceNotice('');
-  saved(doc.source === 'welcome' ? '阅读指南' : '文档已保存到本机');
+  // 有原生句柄的文档每次打开都直接读取原文件；「副本」只是浏览器内的离线缓存，原文件不会被改动
+  const live = sourceState === 'live' && doc.handle;
+  saved(doc.source === 'welcome' ? '阅读指南' : live ? '已直接读取原文件' : '文档已保存到本机');
   if (matchMedia('(max-width:650px)').matches) document.body.classList.add('sidebar-collapsed');
 }
 
@@ -371,7 +364,8 @@ async function sameFile(handle, name) {
   for (const doc of app.documents.filter(item => item.handle && item.name === name)) {
     if (await handle.isSameEntry(doc.handle).catch(() => false)) return doc;
   }
-  return null;
+  // 双击打开过的文档（file:// 交接）还没有句柄：按文件名认领，重新授权后即可实时读取原文件
+  return app.documents.find(item => !item.handle && String(item.id).startsWith('open-') && (item.path === name || item.path.endsWith(`/${name}`))) || null;
 }
 async function hash(value) {
   const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
@@ -404,6 +398,68 @@ async function importFiles(entries) {
   if (!imported.length) { toast('请选择 .md、.markdown 或 .mdown 文件'); return; }
   await openDocument(imported[0]);
   if (imported.length > 1) toast(`已添加 ${imported.length} 份 Markdown 文档`);
+}
+// 双击 .md（file:// 内容脚本交接进来的文件）：按路径复用已有记录，重复打开不产生重复条目
+async function ingestHandoffFile(file) {
+  const path = String(file.path || '');
+  const matched = app.documents.find(item => item.path && item.path === path)
+    || app.documents.filter(item => item.path && path.endsWith(`/${item.path}`)).sort((a, b) => b.path.length - a.path.length)[0];
+  if (matched) {
+    // 已有记录（含已授权文件夹里的文档）：只刷新正文快照，句柄、收藏与批注都保留
+    const doc = await db.mergeDocument({ id: matched.id, name: file.name, content: file.content });
+    const index = app.documents.findIndex(item => item.id === doc.id);
+    if (index >= 0) app.documents[index] = doc;
+    return doc;
+  }
+  const doc = await db.mergeDocument({
+    id: `open-${await hash(path)}`, name: file.name, path, folderId: null,
+    source: 'import', handle: null, content: file.content, importedAt: Date.now(),
+  });
+  app.documents.push(doc);
+  return doc;
+}
+// 从资料库删除一份文档：批注、最近阅读与活动记录一并清理；磁盘上的文件保持原样
+async function purgeDocument(doc) {
+  for (const note of await db.notesFor(doc.id)) await db.mutate('annotations', note.id, () => undefined);
+  await db.mutate('documents', doc.id, () => undefined);
+  const history = await db.get('state', 'history');
+  if (Array.isArray(history) && history.includes(doc.id)) await db.put('state', history.filter(id => id !== doc.id), 'history');
+  const active = await db.get('state', 'active-document');
+  if (active === doc.id) await db.mutate('state', 'active-document', () => undefined);
+}
+async function removeDocumentRecord(id) {
+  const doc = app.documents.find(item => item.id === id);
+  if (!doc) return;
+  if (!window.confirm(`从资料库移除《${doc.name}》及其批注？\n磁盘上的文件不会被删除，重新打开它即可再次加入。`)) return;
+  await purgeDocument(doc);
+  app.documents = app.documents.filter(item => item.id !== id);
+  app.history = app.history.filter(item => item !== id);
+  if (pendingFolderOpen === id) pendingFolderOpen = null;
+  if (app.current?.id === id) await openDocument(welcome, { record: false, initial: true });
+  renderLibrary();
+  toast('已从资料库移除');
+  saved();
+}
+async function removeFolderRecord(folderId) {
+  const folder = app.folders.find(item => item.id === folderId);
+  if (!folder) return;
+  const docs = app.documents.filter(item => item.folderId === folderId);
+  if (!window.confirm(`从资料库移除文件夹「${folder.name}」及其中 ${docs.length} 份文档与批注？\n磁盘上的文件不会被删除，重新选择该文件夹即可再次导入。`)) return;
+  for (const doc of docs) await purgeDocument(doc);
+  await db.mutate('folders', folderId, () => undefined);
+  const removed = new Set(docs.map(item => item.id));
+  if (removed.has(pendingFolderOpen)) pendingFolderOpen = null;
+  if (app.folderId === folderId) {
+    app.folderId = null;
+    await db.mutate('state', 'active-folder', () => undefined);
+  }
+  app.folders = app.folders.filter(item => item.id !== folderId);
+  app.documents = app.documents.filter(item => item.folderId !== folderId);
+  app.history = app.history.filter(id => !removed.has(id));
+  if (removed.has(app.current?.id)) await openDocument(welcome, { record: false, initial: true });
+  renderLibrary();
+  toast(`已移除文件夹「${folder.name}」与其中 ${docs.length} 份文档`);
+  saved();
 }
 async function pickFiles() {
   togglePopover('more-menu', false);
@@ -652,6 +708,14 @@ const actions = {
 
 function bindEvents() {
   document.addEventListener('click', event => {
+    // 资料库的移除控件优先处理，避免同一次点击继续冒泡成「打开该文档」
+    const removeTarget = event.target.closest('[data-remove-document], [data-remove-folder]');
+    if (removeTarget) {
+      event.preventDefault();
+      if (removeTarget.dataset.removeDocument) run(() => removeDocumentRecord(removeTarget.dataset.removeDocument));
+      else run(() => removeFolderRecord(removeTarget.dataset.removeFolder));
+      return;
+    }
     const action = event.target.closest('[data-action]');
     if (action && actions[action.dataset.action]) {
       const name = action.dataset.action;
@@ -719,7 +783,7 @@ function bindEvents() {
     event.target.value = '';
     run(() => importFolderFallback(files));
   });
-  const settingsInputs = { 'font-family': ['font', String], 'font-size': ['fontSize', Number], 'text-width': ['width', Number], 'line-height': ['lineHeight', Number] };
+  const settingsInputs = { 'font-family': ['font', String], 'font-size': ['fontSize', Number], 'text-width': ['width', Number], 'line-height': ['lineHeight', Number], 'outline-size': ['outlineSize', Number] };
   for (const [id, [key, convert]] of Object.entries(settingsInputs)) $(`#${id}`).addEventListener('input', event => { app.settings[key] = convert(event.target.value); saveSettings(); });
   $('#custom-color').addEventListener('input', event => { app.settings.background = event.target.value; app.settings.theme = 'custom'; saveSettings(); });
   $('#comment-form').addEventListener('submit', event => {
@@ -759,6 +823,13 @@ function bindEvents() {
     }
   });
   document.addEventListener('keydown', event => {
+    // 移除控件是行内装饰元素，补上 Enter / 空格的键盘操作
+    const removeTarget = event.target.closest?.('[data-remove-document], [data-remove-folder]');
+    if (removeTarget && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      removeTarget.click();
+      return;
+    }
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o' && !typing) {
       event.preventDefault();
@@ -823,7 +894,7 @@ async function boot() {
   hydrateIcons();
   $('#highlight-options').innerHTML = Object.entries(HIGHLIGHT_COLORS).map(([key, color]) => `<button class="color-dot" data-highlight="${key}" style="--highlight:${color.value}" title="${color.label}高亮" aria-label="${color.label}高亮"></button>`).join('');
   if (navigator.platform.toLowerCase().includes('win') || navigator.platform.toLowerCase().includes('linux')) $('.open-actions kbd').textContent = 'Ctrl O';
-  const [settings, active, folderId, recursive] = await Promise.all([db.get('state', 'settings'), db.get('state', 'active-document'), db.get('state', 'active-folder'), db.get('state', 'recursive')]);
+  const [settings, active, folderId, recursive, pending] = await Promise.all([db.get('state', 'settings'), db.get('state', 'active-document'), db.get('state', 'active-folder'), db.get('state', 'recursive'), db.get('state', 'pending-file-open')]);
   app.settings = normalizeSettings(settings);
   // 旧版本保存的是绝对像素宽度，首次启动时换算成显示比例并写回，之后按比例随窗口伸缩
   if (+settings?.width > widthRange.max) run(() => db.put('state', { ...app.settings }, 'settings'));
@@ -833,7 +904,18 @@ async function boot() {
   bindEvents();
   if (innerWidth < 900) { $('#right-panel').hidden = true; $('#panel-toggle').setAttribute('aria-pressed', 'false'); }
   if (innerWidth < 650) document.body.classList.add('sidebar-collapsed');
-  await openDocument(app.documents.find(doc => doc.id === active) || welcome, { record: false, initial: true });
+  // 双击 .md 交接进来的文件优先打开：进资料库、进最近阅读，批注与同步照常可用
+  let openedPending = false;
+  if (typeof pending?.content === 'string' && pending.path) {
+    await db.mutate('state', 'pending-file-open', () => undefined);
+    try {
+      await openDocument(await ingestHandoffFile(pending), { record: true, initial: true });
+      openedPending = true;
+    } catch {
+      // 交接读取失败时回落到上次打开的文档
+    }
+  }
+  if (!openedPending) await openDocument(app.documents.find(doc => doc.id === active) || welcome, { record: false, initial: true });
   sync.subscribe(renderSyncStatus);
   run(() => sync.initSync());
   document.documentElement.dataset.ready = 'true';

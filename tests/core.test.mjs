@@ -5,6 +5,7 @@ import { locateAnchor } from '../src/annotations.js';
 import * as db from '../src/db.js';
 import * as sync from '../src/sync.js';
 import { isDiagramSource } from '../src/diagram-source.js';
+import { coerceReadingStyle, defaults } from '../src/reading-style.js';
 
 test('最近阅读仅保留 20 条，不重复，重开后移动到首位', async () => {
   for (let i = 0; i < 25; i++) await db.recordVisit(`doc-${i}`);
@@ -139,6 +140,7 @@ test('拉取远端数据：新增与更新生效，对端删除不复活，设�
 test('推送载荷剥掉文件句柄，本机专属键不外传', async () => {
   await db.put('folders', { id: 'folder-x', name: '笔记', handle: { kind: 'directory' }, importedAt: 1 });
   await db.put('state', { fake: 'handle' }, '__sync-handle');
+  await db.put('state', { name: 'a.md', path: 'C:/a.md', content: '# a' }, 'pending-file-open');
   const payload = await sync.buildPayload();
   const folder = payload.folders.records.find(item => item.id === 'folder-x');
   assert.ok(folder);
@@ -146,6 +148,20 @@ test('推送载荷剥掉文件句柄，本机专属键不外传', async () => {
   assert.ok(payload.state.times);                         // __times 作为 times 单独随行
   assert.ok(!('__times' in payload.state.values));
   assert.ok(!('__sync-handle' in payload.state.values));  // 同步句柄只属于本浏览器
+  assert.ok(!('pending-file-open' in payload.state.values)); // 双击文件的交接只属于本标签页
   assert.ok(payload.state.values.__tombstones);           // 删除要传给对端
+});
+test('阅读样式宽容整理：非法值回落默认，越界值收敛到滑块范围', () => {
+  assert.deepEqual(coerceReadingStyle(undefined), defaults);
+  const coerced = coerceReadingStyle({ theme: 'nope', background: 'red', font: 'comic', fontSize: 99, width: 760, lineHeight: 'x', outlineSize: 2 });
+  assert.equal(coerced.theme, 'paper');
+  assert.equal(coerced.background, defaults.background);
+  assert.equal(coerced.font, 'system');
+  assert.equal(coerced.fontSize, 32);
+  assert.equal(coerced.width, 100);              // 旧像素宽度不在此迁移，先收敛到最大比例
+  assert.equal(coerced.lineHeight, 1.9);
+  assert.equal(coerced.outlineSize, 10);
+  const valid = coerceReadingStyle({ theme: 'custom', background: '#ABCDEF', font: 'serif', fontSize: 21, width: 65, lineHeight: 2.2, outlineSize: 15 });
+  assert.deepEqual(valid, { theme: 'custom', background: '#ABCDEF', font: 'serif', fontSize: 21, width: 65, lineHeight: 2.2, outlineSize: 15 });
 });
 test.after(async () => { (await db.database()).close(); db.closeChannel(); });

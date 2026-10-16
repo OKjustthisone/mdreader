@@ -1,0 +1,9 @@
+/* file:// 原生阅读页的最小外壳：让应用的阅读版式脱离侧栏结构独立铺满窗口 */
+body.file-mode{margin:0;display:flex;height:100dvh;overflow:hidden;background:var(--ui)}
+body.file-mode .reading-scroll{min-height:0}
+/* 交接占位：文件已交给墨读主界面，标签页即将跳转 */
+.file-mode .handoff-note{margin:auto;display:flex;flex-direction:column;align-items:center;gap:11px;padding:40px 24px;text-align:center}
+.handoff-note .handoff-name{font-size:17px;font-weight:650;color:var(--ink);max-width:80vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.handoff-note .handoff-status{font-size:12px;color:var(--muted)}
+.handoff-note a{font-size:12px;color:var(--accent);text-decoration:none}
+.handoff-note a:hover{text-decoration:underline}
